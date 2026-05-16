@@ -1,16 +1,25 @@
 'use client'
 import { useState } from 'react'
 
-type Msg = { role: 'user' | 'assistant'; text: string; iterationId?: string }
+type Msg = {
+  role: 'user' | 'assistant'
+  text: string
+  iterationId?: string
+  strategy?: 'parametric' | 'generative'
+}
+
+export type ChatResult =
+  | { kind: 'parametric'; iterationId: string; code: string }
+  | { kind: 'generative'; iterationId: string; meshUrl: string | null; meshBase64: string | null }
 
 export default function Chat({
   projectId,
   initial,
-  onIterationReady,
+  onResult,
 }: {
   projectId: string
   initial: Msg[]
-  onIterationReady: (iterationId: string, code: string) => void
+  onResult: (r: ChatResult) => void
 }) {
   const [messages, setMessages] = useState<Msg[]>(initial)
   const [draft, setDraft] = useState('')
@@ -28,11 +37,40 @@ export default function Chat({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ projectId, message: userText }),
       })
-      if (!res.ok) throw new Error(`API ${res.status}`)
-      const iterationId = res.headers.get('x-iteration-id') ?? undefined
-      const text = await res.text()
-      setMessages((m) => [...m, { role: 'assistant', text, iterationId }])
-      if (iterationId) onIterationReady(iterationId, text)
+      if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
+      const body = (await res.json()) as
+        | { strategy: 'parametric'; iteration_id: string; jscad_code: string }
+        | {
+            strategy: 'generative'
+            iteration_id: string
+            mesh_url: string | null
+            mesh_base64: string | null
+            meta: { task_id: string; took_ms: number }
+          }
+
+      if (body.strategy === 'parametric') {
+        setMessages((m) => [
+          ...m,
+          { role: 'assistant', text: body.jscad_code, iterationId: body.iteration_id, strategy: 'parametric' },
+        ])
+        onResult({ kind: 'parametric', iterationId: body.iteration_id, code: body.jscad_code })
+      } else {
+        setMessages((m) => [
+          ...m,
+          {
+            role: 'assistant',
+            text: `Generated via Meshy in ${(body.meta.took_ms / 1000).toFixed(0)}s`,
+            iterationId: body.iteration_id,
+            strategy: 'generative',
+          },
+        ])
+        onResult({
+          kind: 'generative',
+          iterationId: body.iteration_id,
+          meshUrl: body.mesh_url,
+          meshBase64: body.mesh_base64,
+        })
+      }
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', text: `Error: ${(e as Error).message}` }])
     } finally {
@@ -47,13 +85,16 @@ export default function Chat({
           <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
             <div
               className={`inline-block rounded px-3 py-2 max-w-[90%] ${
-                m.role === 'user'
-                  ? 'bg-black text-white'
-                  : 'bg-gray-100 font-mono text-xs whitespace-pre-wrap'
+                m.role === 'user' ? 'bg-black text-white' : 'bg-gray-100 font-mono text-xs whitespace-pre-wrap'
               }`}
             >
               {m.text}
             </div>
+            {m.role === 'assistant' && m.strategy && (
+              <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-gray-200 text-gray-700 uppercase align-top">
+                {m.strategy === 'generative' ? 'meshy' : 'jscad'}
+              </span>
+            )}
           </div>
         ))}
         {busy && <div className="text-gray-400 text-xs">Generating…</div>}
@@ -73,11 +114,7 @@ export default function Chat({
           disabled={busy}
           data-testid="chat-input"
         />
-        <button
-          type="submit"
-          className="bg-black text-white rounded px-4 py-2 disabled:opacity-50"
-          disabled={busy}
-        >
+        <button type="submit" className="bg-black text-white rounded px-4 py-2 disabled:opacity-50" disabled={busy}>
           Send
         </button>
       </form>

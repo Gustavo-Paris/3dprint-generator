@@ -8,11 +8,12 @@ test('user signs in, creates project, generates a cube, sees it in the viewer', 
   await page.route('**/api/generate', async (route) => {
     await route.fulfill({
       status: 200,
-      headers: {
-        'x-iteration-id': '00000000-0000-0000-0000-000000000001',
-        'content-type': 'text/plain',
-      },
-      body: FIXTURE_CODE,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        strategy: 'parametric',
+        iteration_id: '00000000-0000-0000-0000-000000000001',
+        jscad_code: FIXTURE_CODE,
+      }),
     })
   })
 
