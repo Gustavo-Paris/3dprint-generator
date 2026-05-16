@@ -521,3 +521,18 @@ If manifold errors persist, surface stderr — the issue is likely the seam betw
 - **User-tunable base parameters** via simple UI (height, diameter sliders) — currently inferred from logo bbox.
 - **Background removal** in browser before sending to Meshy (improves logo extraction).
 - **Multi-color trophy** when multi-extruder lands (Phase 2 from the original spec, still queued).
+
+## Tracking
+
+Tasks created by `/tn-from-plan` on 2026-05-16 16:08:31:
+- TASK-038: Schema migration — baseMode
+- TASK-039: Image upload endpoint
+- TASK-040: Meshy image-to-3D client method
+- TASK-041: Base-keyword detector
+- TASK-042: Trophy base builder (parametric JSCAD)
+- TASK-043: STL composer
+- TASK-044: Refactor `/api/generate` for image input
+- TASK-045: Chat UI — file input + thumbnail
+- TASK-046: ProjectWorkspace — render image in history
+- TASK-047: E2E test
+- TASK-048: Manual smoke (human)

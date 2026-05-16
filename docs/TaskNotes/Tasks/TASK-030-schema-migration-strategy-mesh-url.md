@@ -1,8 +1,9 @@
 ---
 uid: task-030
-status: open
+status: done
 priority: normal
 scheduled: 2026-05-16
+completed: 2026-05-16
 pomodoros: 0
 contexts:
 - phase:6
