@@ -8,6 +8,7 @@ import { getModel } from '@/lib/llm/model'
 import { generateMesh, generateMeshFromImage } from '@/lib/meshy/client'
 import { buildTrophyBase, type BaseSpec } from '@/lib/compose/trophy-base'
 import { composeOnTop } from '@/lib/compose/stl-compose'
+import { repairAndPrepareMesh } from '@/lib/compose/repair-mesh'
 import { parseBinarySTL } from '@/lib/jscad/runner'
 import { generateText } from 'ai'
 import { put } from '@vercel/blob'
@@ -88,13 +89,20 @@ export async function POST(req: Request) {
       return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
     }
 
+    // Post-process Meshy output: merge duplicate verts (fix non-manifold edges
+    // the slicer rejects), un-mirror X, and scale to a printable size.
+    const preparedMesh = repairAndPrepareMesh(result.stl, {
+      targetMaxDim: 60,
+      mirrorX: true,
+    })
+
     // Compose with trophy base if requested
-    let finalStl: Uint8Array = result.stl
+    let finalStl: Uint8Array = preparedMesh
     if (baseMode === 'with_base') {
-      const spec = inferBaseDimsFromMesh(result.stl)
+      const spec = inferBaseDimsFromMesh(preparedMesh)
       const baseStl = buildTrophyBase(spec)
       finalStl = composeOnTop({
-        top: result.stl,
+        top: preparedMesh,
         base: baseStl,
         baseHeight: spec.height,
         scaleTopTo: spec.topDiameter * 0.85,
@@ -143,7 +151,11 @@ export async function POST(req: Request) {
         .where(eq(iterations.id, iteration.id))
       return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
     }
-    const meshUrl = await persistMesh(result.stl, session.user.id, projectId, iteration.id)
+    // Post-process: scale to printable size + merge dup verts. Text-to-3d refine
+    // is usually manifold but the scale is normalized — always needs scaling up.
+    // No mirror needed (no image asymmetry to flip).
+    const prepared = repairAndPrepareMesh(result.stl, { targetMaxDim: 60, mirrorX: false })
+    const meshUrl = await persistMesh(prepared, session.user.id, projectId, iteration.id)
 
     await db.update(iterations)
       .set({ status: 'ready', meshBlobUrl: meshUrl })
