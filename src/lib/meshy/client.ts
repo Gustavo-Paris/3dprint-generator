@@ -145,13 +145,14 @@ export async function generateMeshFromImage(input: MeshyImageInput): Promise<Mes
   const previewPoll = await pollImageTask(previewTaskId, headers)
   if (!previewPoll.ok) return previewPoll
 
-  // Stage 2: refine
+  // Stage 2: refine. v1 image-to-3d uses `input_task_id` (not `preview_task_id`
+  // like v2 text-to-3d). API parameter naming diverges between versions.
   const refineCreate = await fetch(`${IMAGE_BASE}/image-to-3d`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
       mode: 'refine',
-      preview_task_id: previewTaskId,
+      input_task_id: previewTaskId,
       enable_pbr: false,
     }),
   })
