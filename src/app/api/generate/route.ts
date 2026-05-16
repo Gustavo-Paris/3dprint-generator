@@ -12,7 +12,7 @@ import { parseBinarySTL } from '@/lib/jscad/runner'
 import { generateText } from 'ai'
 import { put } from '@vercel/blob'
 import { and, asc, eq } from 'drizzle-orm'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 
@@ -48,11 +48,22 @@ export async function POST(req: Request) {
 
     const baseMode = detectBaseMode(message)
 
-    // Resolve URL passed to Meshy: relative local URLs must be made absolute
-    // for Meshy to fetch. Use the request origin.
-    const resolvedImageUrl = imageUrl.startsWith('http')
-      ? imageUrl
-      : new URL(imageUrl, req.url).toString()
+    // Resolve URL passed to Meshy. Two cases:
+    //   1. Public URL (Vercel Blob in prod): pass through.
+    //   2. Local path (/uploads/xxx.png in dev): Meshy can't reach localhost,
+    //      so read the file from disk and inline it as a base64 data: URL.
+    let resolvedImageUrl: string
+    if (imageUrl.startsWith('http')) {
+      resolvedImageUrl = imageUrl
+    } else if (imageUrl.startsWith('/uploads/')) {
+      const filePath = join(process.cwd(), 'public', imageUrl)
+      const bytes = await readFile(filePath)
+      const ext = imageUrl.split('.').pop()?.toLowerCase() ?? 'png'
+      const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
+      resolvedImageUrl = `data:${mime};base64,${bytes.toString('base64')}`
+    } else {
+      return new Response(`Unrecognized imageUrl: ${imageUrl}`, { status: 400 })
+    }
 
     const [iteration] = await db
       .insert(iterations)
