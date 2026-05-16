@@ -2035,3 +2035,26 @@ git commit -m "docs: README with local-dev, tests, and security note"
 - **Phase 4 plan:** OrcaSlicer service on Railway + `/api/slice` + 3MF download
 - **Phase 5 plan:** iteration history UI, version tree, rollback, viewer polish, sandbox hardening
 
+## Tracking
+
+Tasks created by `/tn-from-plan` on 2026-05-15 22:17:06:
+- TASK-001: Initialize Next.js + TypeScript
+- TASK-002: Install runtime + dev dependencies
+- TASK-003: Configure Vitest with a smoke test
+- TASK-004: Configure Playwright with a homepage smoke
+- TASK-005: Local Postgres + env scaffolding
+- TASK-006: Drizzle schema + initial migration
+- TASK-007: Schema integration test
+- TASK-008: NextAuth v5 with Resend + allowlist
+- TASK-009: Auth middleware
+- TASK-010: Project list page
+- TASK-011: Project detail page shell
+- TASK-012: JSCAD system prompt + tests
+- TASK-013: Prompt builder
+- TASK-014: `/api/generate` — streaming, persisted
+- TASK-015: Integration test for `/api/generate`
+- TASK-016: Chat client component
+- TASK-017: JSCAD sandbox + runner + worker
+- TASK-018: Mesh viewer (react-three-fiber)
+- TASK-019: E2E happy-path test
+- TASK-020: README + final pass
