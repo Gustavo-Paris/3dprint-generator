@@ -8,6 +8,8 @@ import { generateMesh } from '@/lib/meshy/client'
 import { generateText } from 'ai'
 import { put } from '@vercel/blob'
 import { and, asc, eq } from 'drizzle-orm'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
       return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
     }
 
-    let meshUrl: string | null = null
+    let meshUrl: string
     if (process.env.BLOB_READ_WRITE_TOKEN) {
       const filename = `${session.user.id}/${projectId}/${iteration.id}.stl`
       const blob = await put(filename, Buffer.from(result.stl), {
@@ -69,6 +71,13 @@ export async function POST(req: Request) {
         addRandomSuffix: false,
       })
       meshUrl = blob.url
+    } else {
+      // Local fallback: write to public/meshes so Next.js serves it at /meshes/<id>.stl.
+      // Survives reloads; in prod, switch to Vercel Blob by setting BLOB_READ_WRITE_TOKEN.
+      const dir = join(process.cwd(), 'public', 'meshes')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, `${iteration.id}.stl`), Buffer.from(result.stl))
+      meshUrl = `/meshes/${iteration.id}.stl`
     }
 
     await db.update(iterations)
@@ -82,7 +91,7 @@ export async function POST(req: Request) {
       strategy: 'generative',
       iteration_id: iteration.id,
       mesh_url: meshUrl,
-      mesh_base64: meshUrl ? null : Buffer.from(result.stl).toString('base64'),
+      mesh_base64: null,
       meta: result.meta,
     })
   }
