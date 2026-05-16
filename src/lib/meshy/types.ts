@@ -22,3 +22,8 @@ export type MeshyResult = {
   ok: false
   error: string
 }
+
+export type MeshyImageInput = {
+  imageUrl: string  // public URL OR data: URL (data:image/png;base64,...)
+  apiKey: string
+}
