@@ -1,8 +1,10 @@
 const KEYWORDS = [
-  // pt
-  'troféu', 'trofeu', 'prêmio', 'premio', 'pedestal', 'base', 'suporte', 'pódio', 'podio',
+  // pt (common typos included)
+  'troféu', 'trofeu', 'trofer', 'trofeo', 'troféo', 'trofey',
+  'prêmio', 'premio',
+  'pedestal', 'base', 'suporte', 'pódio', 'podio',
   // en
-  'trophy', 'prize', 'pedestal', 'stand', 'plinth', 'mount', 'award',
+  'trophy', 'trohpy', 'trofy', 'prize', 'pedestal', 'stand', 'plinth', 'mount', 'award',
 ]
 
 const NEGATIVE = [

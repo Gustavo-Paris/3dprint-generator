@@ -36,6 +36,11 @@ export default function ProjectWorkspace({
     (it) => it.status === 'ready' || it.status === 'sliced',
   )
 
+  // The most recent image used in this project. Auto-attached in the chat so
+  // follow-up messages iterate on the same image instead of generating blind.
+  const lastImageUrl =
+    initialHistory.filter((it) => it.imageBlobUrl).pop()?.imageBlobUrl ?? null
+
   const [iterationId, setIterationId] = useState<string | null>(lastReady?.id ?? null)
   const [positions, setPositions] = useState<Float32Array | null>(null)
   const [stl, setStl] = useState<Uint8Array | null>(null)
@@ -136,7 +141,12 @@ export default function ProjectWorkspace({
         <header className="p-4 border-b">
           <h1 className="font-semibold">{project.title}</h1>
         </header>
-        <Chat projectId={project.id} initial={initialMessages} onResult={onResult} />
+        <Chat
+          projectId={project.id}
+          initial={initialMessages}
+          initialAttachedImageUrl={lastImageUrl}
+          onResult={onResult}
+        />
       </aside>
       <section className="relative bg-gray-50" data-testid="viewer-slot">
         <MeshViewer positions={positions} fitKey={iterationId ?? undefined} />

@@ -16,17 +16,26 @@ export type ChatResult =
 export default function Chat({
   projectId,
   initial,
+  initialAttachedImageUrl,
   onResult,
 }: {
   projectId: string
   initial: Msg[]
+  /** URL of the most recent image used in this project. Auto-attached on mount so
+   * follow-up messages iterate on the same image instead of generating from scratch.
+   * The user can click the X to clear it before sending. */
+  initialAttachedImageUrl?: string | null
   onResult: (r: ChatResult) => void
 }) {
   const [messages, setMessages] = useState<Msg[]>(initial)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [attachedImage, setAttachedImage] = useState<{ url: string; file: File } | null>(null)
+  const [attachedImage, setAttachedImage] = useState<{ url: string; file: File | null; carried: boolean } | null>(
+    initialAttachedImageUrl
+      ? { url: initialAttachedImageUrl, file: null, carried: true }
+      : null,
+  )
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -40,7 +49,7 @@ export default function Chat({
       const res = await fetch('/api/upload', { method: 'POST', body: form })
       if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`)
       const { url } = (await res.json()) as { url: string }
-      setAttachedImage({ url, file })
+      setAttachedImage({ url, file, carried: false })
     } catch (err) {
       alert(`Upload failed: ${(err as Error).message}`)
     } finally {
@@ -137,16 +146,20 @@ export default function Chat({
       </div>
 
       {attachedImage && (
-        <div className="px-4 pb-2 flex items-center gap-2 border-t">
+        <div className="px-4 pb-2 pt-2 flex items-center gap-2 border-t bg-amber-50">
           <img
             src={attachedImage.url}
             alt="attached preview"
             className="w-12 h-12 object-cover rounded border"
           />
-          <span className="text-xs text-gray-600 flex-1 truncate">{attachedImage.file.name}</span>
+          <span className="text-xs text-gray-700 flex-1 truncate">
+            {attachedImage.carried
+              ? '↻ carrying image from previous iteration — click ✕ to start fresh'
+              : (attachedImage.file?.name ?? 'attached image')}
+          </span>
           <button
             onClick={() => setAttachedImage(null)}
-            className="text-gray-500 hover:text-red-500 text-sm"
+            className="text-gray-500 hover:text-red-500 text-sm px-2"
             aria-label="Remove attached image"
           >
             ✕
