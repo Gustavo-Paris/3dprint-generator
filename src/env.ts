@@ -11,6 +11,7 @@ const schema = z.object({
   E2E_ALLOW_TEST_LOGIN: z.string().optional(),
   SLICER_URL: z.string().url().default('http://localhost:8787'),
   BLOB_READ_WRITE_TOKEN: z.string().optional(),
+  MESHY_API_KEY: z.string().optional(),
 })
 
 const parsed = schema.safeParse(process.env)
