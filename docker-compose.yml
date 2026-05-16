@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: 3dgen-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - 3dgen-pgdata:/var/lib/postgresql/data
+volumes:
+  3dgen-pgdata:
