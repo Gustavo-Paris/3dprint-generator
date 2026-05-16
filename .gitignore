@@ -42,3 +42,18 @@ next-env.d.ts
 
 # project-specific
 .superpowers/
+
+# claude code per-machine state
+.claude/settings.json
+.claude/settings.local.json
+.claude/session-context-gf.json
+.claude/session-brief.md
+.claude/session-brief-*.md
+.claude/session-journal.md
+.claude/scheduled_tasks.lock
+.claude/plans/
+.claude/tasks/
+.claude/teams/
+
+# graphify analysis output
+/report

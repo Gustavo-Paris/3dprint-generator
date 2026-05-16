@@ -1,0 +1,42 @@
+# graphify.toml — 3dprint-generator architectural analysis
+
+[settings]
+output = "./report"
+exclude = [
+  "node_modules",
+  ".next",
+  ".vercel",
+  "dist",
+  "build",
+  "out",
+  "report",
+  "drizzle",
+  "tests",
+  "test-results",
+  "public",
+  "docs",
+  "*.test.*",
+  "*.spec.*",
+]
+format = ["json", "md"]
+
+[[project]]
+name = "3dprint-generator"
+repo = "./src"
+lang = ["typescript"]
+local_prefix = "src"
+external_stubs = [
+  "next",
+  "react",
+  "react-dom",
+  "drizzle-orm",
+  "postgres",
+  "ai",
+  "next-auth",
+  "@auth/drizzle-adapter",
+  "@jscad/modeling",
+  "@react-three/drei",
+  "@react-three/fiber",
+  "@vercel/blob",
+  "zod",
+]
