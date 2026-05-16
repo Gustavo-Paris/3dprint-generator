@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install -g pnpm
+# pnpm crashes under qemu x86_64 (libuv epoll_ctl assertion); use npm in container
 
 # Copy extraction helper (finds valid SquashFS v4.0 superblock in AppImage)
 COPY extract-appimage.py /usr/local/bin/extract-appimage.py
@@ -35,9 +35,9 @@ ENV ORCA_BIN=/opt/orca/orca-extracted/AppRun
 
 WORKDIR /app
 COPY package.json ./
-RUN pnpm install
+RUN npm install
 COPY src ./src
 COPY profiles ./profiles
 
 EXPOSE 8787
-CMD ["pnpm", "start"]
+CMD ["npx", "tsx", "src/server.ts"]
