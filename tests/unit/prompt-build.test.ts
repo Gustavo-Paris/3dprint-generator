@@ -19,25 +19,25 @@ describe('SYSTEM_PROMPT (Phase 1: single-body)', () => {
 })
 
 describe('buildMessages', () => {
-  it('starts with the system prompt', () => {
-    const msgs = buildMessages({ history: [], newMessage: 'a cube' })
-    expect(msgs[0].role).toBe('system')
-    expect(msgs[0].content).toContain('@jscad/modeling')
+  it('returns the system prompt as a separate field', () => {
+    const { system, messages } = buildMessages({ history: [], newMessage: 'a cube' })
+    expect(system).toContain('@jscad/modeling')
+    expect(messages[0]).toMatchObject({ role: 'user', content: 'a cube' })
   })
 
   it('appends history alternating user/assistant', () => {
-    const msgs = buildMessages({
+    const { messages } = buildMessages({
       history: [
         { userMessage: 'cube', jscadCode: 'const main = () => jscad.primitives.cuboid({size:[10,10,10]}); module.exports = { main }' },
         { userMessage: 'taller', jscadCode: 'const main = () => jscad.primitives.cuboid({size:[10,10,30]}); module.exports = { main }' },
       ],
       newMessage: 'add a hole',
     })
-    expect(msgs).toHaveLength(6)
-    expect(msgs[1]).toMatchObject({ role: 'user', content: 'cube' })
-    expect(msgs[2].role).toBe('assistant')
-    expect(msgs[2].content).toContain('cuboid')
-    expect(msgs[5]).toMatchObject({ role: 'user', content: 'add a hole' })
+    expect(messages).toHaveLength(5)
+    expect(messages[0]).toMatchObject({ role: 'user', content: 'cube' })
+    expect(messages[1].role).toBe('assistant')
+    expect(messages[1].content).toContain('cuboid')
+    expect(messages[4]).toMatchObject({ role: 'user', content: 'add a hole' })
   })
 
   it('caps history at the last 10 turns', () => {
@@ -45,8 +45,9 @@ describe('buildMessages', () => {
       userMessage: `msg ${i}`,
       jscadCode: `// code ${i}`,
     }))
-    const msgs = buildMessages({ history, newMessage: 'next' })
-    expect(msgs).toHaveLength(22)
-    expect(msgs[1].content).toBe('msg 10')
+    const { messages } = buildMessages({ history, newMessage: 'next' })
+    // 10 user/assistant pairs + 1 new user = 21
+    expect(messages).toHaveLength(21)
+    expect(messages[0].content).toBe('msg 10')
   })
 })

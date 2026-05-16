@@ -5,22 +5,32 @@ export type HistoryTurn = {
   jscadCode: string | null
 }
 
-export type Message = { role: 'system' | 'user' | 'assistant'; content: string }
+export type ConversationMessage = { role: 'user' | 'assistant'; content: string }
+
+export type PromptInput = {
+  system: string
+  messages: ConversationMessage[]
+}
 
 const MAX_HISTORY_TURNS = 10
 
+/**
+ * Build the prompt input for streamText. The system prompt is returned as a
+ * separate field — AI SDK v6 warns against putting system messages inside the
+ * messages array because of prompt-injection risk.
+ */
 export function buildMessages(input: {
   history: HistoryTurn[]
   newMessage: string
-}): Message[] {
+}): PromptInput {
   const recent = input.history.slice(-MAX_HISTORY_TURNS)
-  const msgs: Message[] = [{ role: 'system', content: SYSTEM_PROMPT }]
+  const messages: ConversationMessage[] = []
   for (const turn of recent) {
-    msgs.push({ role: 'user', content: turn.userMessage })
+    messages.push({ role: 'user', content: turn.userMessage })
     if (turn.jscadCode !== null) {
-      msgs.push({ role: 'assistant', content: turn.jscadCode })
+      messages.push({ role: 'assistant', content: turn.jscadCode })
     }
   }
-  msgs.push({ role: 'user', content: input.newMessage })
-  return msgs
+  messages.push({ role: 'user', content: input.newMessage })
+  return { system: SYSTEM_PROMPT, messages }
 }

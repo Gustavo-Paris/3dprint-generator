@@ -1,8 +1,9 @@
 ---
 uid: task-001
-status: in-progress
+status: done
 priority: normal
 scheduled: 2026-05-15
+completed: 2026-05-15
 pomodoros: 0
 contexts:
 - phase:1

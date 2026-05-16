@@ -2,7 +2,8 @@ import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { buildMessages } from '@/lib/prompt/build'
-import { gateway, streamText } from 'ai'
+import { getModel } from '@/lib/llm/model'
+import { streamText } from 'ai'
 import { and, asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 
@@ -13,8 +14,6 @@ const Body = z.object({
   projectId: z.string().uuid(),
   message: z.string().min(1).max(2000),
 })
-
-const MODEL = 'anthropic/claude-opus-4-7'
 
 export async function POST(req: Request) {
   const session = await auth()
@@ -42,13 +41,14 @@ export async function POST(req: Request) {
     .values({ projectId, userMessage: message, status: 'generating' })
     .returning()
 
-  const messages = buildMessages({
+  const { system, messages } = buildMessages({
     history: history.map((h) => ({ userMessage: h.userMessage, jscadCode: h.jscadCode })),
     newMessage: message,
   })
 
   const result = streamText({
-    model: gateway(MODEL),
+    model: getModel(),
+    system,
     messages,
     onFinish: async ({ text }) => {
       await db
