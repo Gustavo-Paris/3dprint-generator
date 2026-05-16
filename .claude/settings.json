@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "baseline-filtered@devkit-managed-3dprint-generator": true
+  },
+  "extraKnownMarketplaces": {
+    "devkit-managed-3dprint-generator": {
+      "source": {
+        "source": "file",
+        "path": "/Users/gustavoparis/www/3dprint-generator/.claude/devkit/marketplace.json"
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "baseline-filtered",
+  "version": "1.0.0-f7297c08",
+  "sources": [
+    {
+      "plugin": "pg-baseline",
+      "version": "0.13.1"
+    }
+  ]
+}

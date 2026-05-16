@@ -1,0 +1,55 @@
+schema_version: 1
+profile_origin: saas-fullstack
+plugins:
+  - pg-baseline
+assets:
+  skills:
+    - commit-discipline
+    - session-start
+    - session-close
+    - tasknotes-cli
+    - find-skills
+    - context-maintenance
+    - drizzle-migrations
+    - database-design
+    - api-design
+    - clean-architecture
+    - usecase-design
+    - logger-design
+    - redis-design
+    - security-practices
+    - railway-debug
+    - railway-logs
+    - e2e-run
+    - e2e-fix-cycle
+    - e2e-analyze
+    - e2e-architect
+    - e2e-chrome-devtools
+    - testing-strategy
+    - coverage-run
+    - coverage-check
+    - coverage-report
+    - design-usabilidade
+    - design-critic
+    - design-auditoria
+    - i18n-audit
+    - i18n-maintenance
+    - launch-audit
+    - log-audit
+    - reviewer
+    - team-plan
+    - team-execute
+    - team-reviewer
+  commands:
+    - commit
+    - commit-push
+    - session-start
+    - session-close
+    - tn-plan-today
+    - tn-plan-session
+    - tn-sprint
+  agents:
+    - pg-commit-reviewer
+    - architect
+    - test-engineer
+  hooks: []
