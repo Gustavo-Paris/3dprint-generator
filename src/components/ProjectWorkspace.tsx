@@ -30,7 +30,7 @@ export default function ProjectWorkspace({
     if (!code) return
     let cancelled = false
     setError(null)
-    runInWorker(code)
+    runInWorker({ type: 'jscad', code })
       .then((r) => {
         if (cancelled) return
         if (r.ok) {

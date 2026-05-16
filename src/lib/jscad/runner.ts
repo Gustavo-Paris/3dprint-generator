@@ -57,6 +57,19 @@ export async function runJscad(code: string): Promise<JscadResult> {
   }
 }
 
+export function parseBinarySTL(stl: Uint8Array): Float32Array {
+  const dv = new DataView(stl.buffer, stl.byteOffset, stl.byteLength)
+  const triCount = dv.getUint32(80, true)
+  const positions = new Float32Array(triCount * 9)
+  for (let i = 0; i < triCount; i++) {
+    const base = 84 + i * 50
+    for (let v = 0; v < 9; v++) {
+      positions[i * 9 + v] = dv.getFloat32(base + 12 + v * 4, true)
+    }
+  }
+  return positions
+}
+
 function serializeBinarySTL(positions: number[]): Uint8Array {
   const triCount = positions.length / 9
   const buf = new ArrayBuffer(84 + 50 * triCount)

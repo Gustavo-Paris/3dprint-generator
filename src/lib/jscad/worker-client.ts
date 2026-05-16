@@ -21,10 +21,12 @@ function ensureWorker(): Worker {
   return worker
 }
 
-export function runInWorker(code: string): Promise<JscadResult> {
+type Input = { type: 'jscad'; code: string } | { type: 'stl'; stl: Uint8Array }
+
+export function runInWorker(input: Input): Promise<JscadResult> {
   if (pending) return Promise.reject(new Error('Another job is in flight'))
   return new Promise((resolve, reject) => {
     pending = { resolve, reject }
-    ensureWorker().postMessage({ code })
+    ensureWorker().postMessage(input)
   })
 }
