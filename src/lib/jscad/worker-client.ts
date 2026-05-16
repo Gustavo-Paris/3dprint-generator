@@ -15,6 +15,8 @@ function ensureWorker(): Worker {
   worker.onerror = (e) => {
     pending?.reject(e)
     pending = null
+    worker?.terminate()
+    worker = null
   }
   return worker
 }
