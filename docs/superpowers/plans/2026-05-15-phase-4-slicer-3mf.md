@@ -934,3 +934,16 @@ tn done TASK-XXX  # whichever UID this task gets
 - **Phase 4.5 / 5:** Deploy slicer to Railway. Replace `SLICER_URL=http://localhost:8787` with the Railway URL. Add HMAC signing on requests.
 - **Phase 2:** Multi-extruder support — 3MF carries multi-body geometry; this phase only generates single-body 3MF.
 - **Phase 5:** Iteration history UI, version rollback, viewer polish (chat text contrast bug noted in Phase 1 smoke), sandbox hardening.
+
+## Tracking
+
+Tasks created by `/tn-from-plan` on 2026-05-15 23:26:14:
+- TASK-021: Add STL export to JSCAD runner
+- TASK-022: Schema migration for sliced output
+- TASK-023: Slicer service skeleton (Dockerfile + Express)
+- TASK-024: Bundle a minimal H2D PLA profile + verify build
+- TASK-025: Wire slicer into docker-compose
+- TASK-026: Slicer client + `/api/slice` route
+- TASK-027: "Slice for printing" UI button + download
+- TASK-028: E2E happy path
+- TASK-029: Manual end-to-end smoke (no automation)
