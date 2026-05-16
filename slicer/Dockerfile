@@ -26,8 +26,9 @@ RUN npm install -g pnpm
 WORKDIR /opt/orca
 RUN curl -fL -o orca.AppImage "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.3.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.3.2.AppImage" \
     && OFFSET=$(python3 -c 'import sys; d=open("orca.AppImage","rb").read(); i=d.find(b"hsqs"); i=d.find(b"sqsh") if i<0 else i; print(i)') \
-    && unsquashfs -offset "$OFFSET" -dest orca-extracted orca.AppImage \
-    && rm orca.AppImage
+    && dd if=orca.AppImage bs=1 skip="$OFFSET" of=orca.squashfs \
+    && unsquashfs -dest orca-extracted orca.squashfs \
+    && rm orca.AppImage orca.squashfs
 
 ENV ORCA_BIN=/opt/orca/orca-extracted/AppRun
 
