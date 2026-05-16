@@ -8,6 +8,13 @@
       "when": 1778895254799,
       "tag": "0000_needy_phantom_reporter",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778898482105,
+      "tag": "0001_loving_giant_man",
+      "breakpoints": true
     }
   ]
 }

@@ -61,8 +61,11 @@ export const iterations = pgTable('iterations', {
   imageBlobUrl: text('image_blob_url'),
   jscadCode: text('jscad_code'),
   validationReport: jsonb('validation_report'),
-  status: text('status', { enum: ['generating', 'ready', 'failed'] }).notNull(),
+  status: text('status', { enum: ['generating', 'ready', 'failed', 'sliced'] }).notNull(),
   error: text('error'),
+  slicedBlobUrl: text('sliced_blob_url'),
+  slicedMeta: jsonb('sliced_meta'),
+  slicedAt: timestamp('sliced_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
