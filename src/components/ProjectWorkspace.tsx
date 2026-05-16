@@ -133,7 +133,7 @@ export default function ProjectWorkspace({
         <Chat projectId={project.id} initial={initialMessages} onResult={onResult} />
       </aside>
       <section className="relative bg-gray-50" data-testid="viewer-slot">
-        <MeshViewer positions={positions} />
+        <MeshViewer positions={positions} fitKey={iterationId ?? undefined} />
         <SliceButton iterationId={iterationId} stl={stl} />
         {error && (
           <div className="absolute bottom-4 left-4 right-4 bg-red-50 text-red-900 border border-red-200 rounded p-3 text-xs">
