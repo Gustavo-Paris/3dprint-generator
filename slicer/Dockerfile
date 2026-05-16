@@ -29,7 +29,7 @@ COPY extract-appimage.py /usr/local/bin/extract-appimage.py
 
 # Download and extract OrcaSlicer AppImage (avoids executing x86_64 ELF under qemu)
 WORKDIR /opt/orca
-RUN curl -fL -o orca.AppImage "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.3.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.3.2.AppImage" \
+RUN curl -fL -o orca.AppImage "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.2.0/OrcaSlicer_Linux_Ubuntu2404_V2.2.0.AppImage" \
     && python3 /usr/local/bin/extract-appimage.py orca.AppImage orca.squashfs \
     && unsquashfs -dest orca-extracted orca.squashfs \
     && rm orca.AppImage orca.squashfs

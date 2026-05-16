@@ -14,6 +14,23 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, orca: ORCA_BIN, profiles_dir: PROFILES_DIR })
 })
 
+app.get('/diag', (_req, res) => {
+  const ldd = spawnSync('ldd', [`${ORCA_BIN.replace('/AppRun', '/bin/orca-slicer')}`], { encoding: 'utf8' })
+  const help = spawnSync(ORCA_BIN, ['--help'], { encoding: 'utf8' })
+  const xvfb = spawnSync('which', ['xvfb-run'], { encoding: 'utf8' })
+  const ls = spawnSync('ls', ['-la', '/opt/orca/orca-extracted/bin/'], { encoding: 'utf8' })
+  const profile = readFileSync(`${PROFILES_DIR}/machine_h2d_pla.json`, 'utf8')
+  const profileStartLines = profile.split('\n').slice(0, 25).join('\n')
+  res.json({
+    ldd: { code: ldd.status, stdout: ldd.stdout, stderr: ldd.stderr },
+    orca_help: { code: help.status, stdout: help.stdout?.slice(0, 2000), stderr: help.stderr?.slice(0, 2000) },
+    xvfb_run: xvfb.stdout?.trim(),
+    bin_listing: ls.stdout,
+    profile_first_25_lines: profileStartLines,
+    profile_byte_size: profile.length,
+  })
+})
+
 app.post('/slice', async (req, res) => {
   const { stl_base64 } = req.body ?? {}
   if (typeof stl_base64 !== 'string' || stl_base64.length === 0) {
@@ -30,25 +47,33 @@ app.post('/slice', async (req, res) => {
     const outPath = join(work, 'out.3mf')
     writeFileSync(stlPath, Buffer.from(stl_base64, 'base64'))
 
-    // Run under xvfb-run so OrcaSlicer's Qt/GL init has a virtual display.
-    // Without this, the binary segfaults under qemu x86_64 emulation.
-    const result = spawnSync('xvfb-run', [
-      '-a',
-      '--server-args=-screen 0 1024x768x24',
-      ORCA_BIN,
+    const result = spawnSync(ORCA_BIN, [
+      '--debug', '5',
+      '--no-check',
       '--slice', '0',
       '--load-settings', `${PROFILES_DIR}/machine_h2d_pla.json;${PROFILES_DIR}/process_h2d_pla_0.2mm.json`,
       '--load-filaments', `${PROFILES_DIR}/filament_generic_pla.json`,
       '--load-filament-ids', '1',
       '--export-3mf', outPath,
       stlPath,
-    ], { encoding: 'utf8' })
+    ], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        QT_QPA_PLATFORM: 'offscreen',
+        LIBGL_ALWAYS_SOFTWARE: '1',
+        MESA_GL_VERSION_OVERRIDE: '3.3',
+        DISPLAY: '',
+      },
+    })
 
     if (result.status !== 0) {
       return res.status(500).json({
         error: 'OrcaSlicer failed',
-        stderr: result.stderr?.slice(0, 4000) ?? '',
-        stdout: result.stdout?.slice(0, 4000) ?? '',
+        status: result.status,
+        signal: result.signal,
+        stderr_tail: result.stderr?.slice(-8000) ?? '',
+        stdout_tail: result.stdout?.slice(-8000) ?? '',
       })
     }
 
