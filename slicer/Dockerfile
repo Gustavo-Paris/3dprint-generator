@@ -1,6 +1,6 @@
 FROM --platform=linux/amd64 ubuntu:24.04
 
-# OrcaSlicer dependencies (Qt + GL libs even in CLI mode) + FUSE for AppImage extraction
+# OrcaSlicer dependencies (Qt + GL libs even in CLI mode) + squashfs-tools for AppImage extraction
 RUN apt-get update && apt-get install -y \
     curl \
     libgtk-3-0 \
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     libgstreamer-plugins-base1.0-0 \
     libgstreamer1.0-0 \
     xvfb \
-    libfuse2t64 \
+    squashfs-tools \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,12 +21,17 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm
 
-# Extract OrcaSlicer AppImage (running it as --appimage-extract works without FUSE)
+# Extract OrcaSlicer AppImage using unsquashfs (avoids executing x86_64 ELF in emulation)
+# AppImage is a SquashFS with a small ELF runtime prepended; find squashfs magic offset and extract
 WORKDIR /opt/orca
 RUN curl -fL -o orca.AppImage "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.3.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.3.2.AppImage" \
-    && chmod +x orca.AppImage \
-    && ./orca.AppImage --appimage-extract \
-    && mv squashfs-root orca-extracted \
+    && OFFSET=$(python3 -c "
+data = open('orca.AppImage','rb').read()
+idx = data.find(b'hsqs')
+if idx == -1: idx = data.find(b'sqsh')
+print(idx)
+") \
+    && unsquashfs -offset "$OFFSET" -dest orca-extracted orca.AppImage \
     && rm orca.AppImage
 
 ENV ORCA_BIN=/opt/orca/orca-extracted/AppRun
