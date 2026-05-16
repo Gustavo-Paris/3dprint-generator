@@ -15,6 +15,13 @@
       "when": 1778898482105,
       "tag": "0001_loving_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778952789502,
+      "tag": "0002_woozy_kate_bishop",
+      "breakpoints": true
     }
   ]
 }
