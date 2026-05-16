@@ -33,7 +33,9 @@ app.post('/slice', async (req, res) => {
     const result = spawnSync(ORCA_BIN, [
       '--slice', '0',
       '--load-settings', `${PROFILES_DIR}/machine_h2d_pla.json;${PROFILES_DIR}/process_h2d_pla_0.2mm.json`,
-      '--load-filaments', `${PROFILES_DIR}/filament_generic_pla.json`,
+      // H2D is dual-extruder: pass both slots with the same filament, assign object to extruder 0
+      '--load-filaments', `${PROFILES_DIR}/filament_generic_pla.json;${PROFILES_DIR}/filament_generic_pla.json`,
+      '--load-filament-ids', '0',
       '--export-3mf', outPath,
       stlPath,
     ], { encoding: 'utf8' })

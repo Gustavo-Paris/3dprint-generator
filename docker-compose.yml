@@ -11,5 +11,18 @@ services:
       - "5432:5432"
     volumes:
       - 3dgen-pgdata:/var/lib/postgresql/data
+
+  slicer:
+    build:
+      context: ./slicer
+    platform: linux/amd64
+    container_name: 3dgen-slicer
+    restart: unless-stopped
+    environment:
+      QT_QPA_PLATFORM: offscreen
+      PORT: "8787"
+    ports:
+      - "8787:8787"
+
 volumes:
   3dgen-pgdata:
