@@ -71,6 +71,7 @@ export const iterations = pgTable('iterations', {
   slicedMeta: jsonb('sliced_meta'),
   slicedAt: timestamp('sliced_at'),
   baseMode: text('base_mode', { enum: ['mesh_only', 'with_base'] }),
+  imageDescription: text('image_description'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 

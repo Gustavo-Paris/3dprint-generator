@@ -4,6 +4,8 @@ import { iterations, projects } from '@/db/schema'
 import { buildMessages } from '@/lib/prompt/build'
 import { classifyIntent } from '@/lib/prompt/classify'
 import { detectBaseMode } from '@/lib/prompt/base-detect'
+import { describeImage } from '@/lib/prompt/describe-image'
+import { synthesizeIterationPrompt } from '@/lib/prompt/synthesize-iteration'
 import { getModel } from '@/lib/llm/model'
 import { generateMesh, generateMeshFromImage } from '@/lib/meshy/client'
 import { buildTrophyBase, type BaseSpec } from '@/lib/compose/trophy-base'
@@ -78,6 +80,13 @@ export async function POST(req: Request) {
       })
       .returning()
 
+    // Kick off image description in parallel with Meshy — we'll need it for
+    // any future text-only iterations on this image.
+    const descriptionPromise = describeImage(imageUrl).catch((err) => {
+      console.error('describeImage failed:', err)
+      return null
+    })
+
     const result = await generateMeshFromImage({
       imageUrl: resolvedImageUrl,
       apiKey: process.env.MESHY_API_KEY,
@@ -111,6 +120,85 @@ export async function POST(req: Request) {
 
     // Persist final STL
     const meshUrl = await persistMesh(finalStl, session.user.id, projectId, iteration.id)
+    const imageDescription = await descriptionPromise
+
+    await db.update(iterations)
+      .set({ status: 'ready', meshBlobUrl: meshUrl, imageDescription })
+      .where(eq(iterations.id, iteration.id))
+    await db.update(projects)
+      .set({ currentIterationId: iteration.id, updatedAt: new Date() })
+      .where(eq(projects.id, projectId))
+
+    return Response.json({
+      strategy: 'generative',
+      iteration_id: iteration.id,
+      mesh_url: meshUrl,
+      mesh_base64: null,
+      meta: { ...result.meta, base_mode: baseMode, source: 'image' },
+    })
+  }
+
+  // No image attached on this message → either continue the existing classifier
+  // flow, OR (if the project has a prior image-based generation) switch to
+  // text-to-3D iteration mode using the synthesized description + history.
+  const history = await db
+    .select()
+    .from(iterations)
+    .where(eq(iterations.projectId, projectId))
+    .orderBy(asc(iterations.createdAt))
+
+  // Find the most recent iteration that has an image_description. That's the
+  // anchor for any iterations we route via text-to-3D.
+  const lastImageIteration = [...history].reverse().find(
+    (h) => h.imageBlobUrl && h.imageDescription && h.status === 'ready',
+  )
+
+  if (lastImageIteration && process.env.MESHY_API_KEY) {
+    // Iteration on a prior image-based generation. Synthesize a rich prompt
+    // from the image description + all prior user messages in this project +
+    // the new message, then send to Meshy text-to-3D.
+    const allMessages = history.map((h) => h.userMessage).concat([message])
+    const synthesizedPrompt = await synthesizeIterationPrompt({
+      imageDescription: lastImageIteration.imageDescription!,
+      messages: allMessages,
+    })
+    const baseMode = detectBaseMode(message) // re-detect from latest message
+
+    const [iteration] = await db
+      .insert(iterations)
+      .values({
+        projectId,
+        userMessage: message,
+        status: 'generating',
+        strategy: 'generative',
+        baseMode,
+        // Carry the image description forward so subsequent iterations keep
+        // anchoring to the original image.
+        imageDescription: lastImageIteration.imageDescription,
+      })
+      .returning()
+
+    const result = await generateMesh({ prompt: synthesizedPrompt, apiKey: process.env.MESHY_API_KEY })
+    if (!result.ok) {
+      await db.update(iterations)
+        .set({ status: 'failed', error: result.error })
+        .where(eq(iterations.id, iteration.id))
+      return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
+    }
+
+    const preparedMesh = repairAndPrepareMesh(result.stl, { targetMaxDim: 60, mirrorX: false })
+    let finalStl: Uint8Array = preparedMesh
+    if (baseMode === 'with_base') {
+      const spec = inferBaseDimsFromMesh(preparedMesh)
+      const baseStl = buildTrophyBase(spec)
+      finalStl = composeOnTop({
+        top: preparedMesh,
+        base: baseStl,
+        baseHeight: spec.height,
+        scaleTopTo: spec.topDiameter * 0.85,
+      })
+    }
+    const meshUrl = await persistMesh(finalStl, session.user.id, projectId, iteration.id)
 
     await db.update(iterations)
       .set({ status: 'ready', meshBlobUrl: meshUrl })
@@ -124,16 +212,14 @@ export async function POST(req: Request) {
       iteration_id: iteration.id,
       mesh_url: meshUrl,
       mesh_base64: null,
-      meta: { ...result.meta, base_mode: baseMode },
+      meta: {
+        ...result.meta,
+        base_mode: baseMode,
+        source: 'iteration',
+        synthesized_prompt: synthesizedPrompt,
+      },
     })
   }
-
-  // No image → existing classifier-based flow
-  const history = await db
-    .select()
-    .from(iterations)
-    .where(eq(iterations.projectId, projectId))
-    .orderBy(asc(iterations.createdAt))
 
   let strategy: 'parametric' | 'generative' = await classifyIntent(message)
   if (strategy === 'generative' && !process.env.MESHY_API_KEY) strategy = 'parametric'

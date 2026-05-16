@@ -79,7 +79,7 @@ export default function Chat({
             iteration_id: string
             mesh_url: string | null
             mesh_base64: string | null
-            meta: { task_id: string; took_ms: number; base_mode?: string }
+            meta: { task_id: string; took_ms: number; base_mode?: string; source?: 'image' | 'iteration'; synthesized_prompt?: string }
           }
 
       if (body.strategy === 'parametric') {
@@ -89,13 +89,17 @@ export default function Chat({
         ])
         onResult({ kind: 'parametric', iterationId: body.iteration_id, code: body.jscad_code })
       } else {
+        const sourceLabel =
+          body.meta.source === 'iteration' ? 'Iterated via Meshy text-to-3D' : 'Generated via Meshy'
+        const baseLabel = body.meta.base_mode === 'with_base' ? ' (with trophy base)' : ''
+        const synthLabel = body.meta.synthesized_prompt
+          ? `\n\nSynthesized prompt: "${body.meta.synthesized_prompt}"`
+          : ''
         setMessages((m) => [
           ...m,
           {
             role: 'assistant',
-            text: `Generated via Meshy in ${(body.meta.took_ms / 1000).toFixed(0)}s${
-              body.meta.base_mode === 'with_base' ? ' (with trophy base)' : ''
-            }`,
+            text: `${sourceLabel} in ${(body.meta.took_ms / 1000).toFixed(0)}s${baseLabel}${synthLabel}`,
             iterationId: body.iteration_id,
             strategy: 'generative',
           },
