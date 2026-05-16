@@ -2,13 +2,16 @@ import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { buildMessages } from '@/lib/prompt/build'
+import { classifyIntent } from '@/lib/prompt/classify'
 import { getModel } from '@/lib/llm/model'
-import { streamText } from 'ai'
+import { generateMesh } from '@/lib/meshy/client'
+import { generateText } from 'ai'
+import { put } from '@vercel/blob'
 import { and, asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 300
 
 const Body = z.object({
   projectId: z.string().uuid(),
@@ -36,39 +39,79 @@ export async function POST(req: Request) {
     .where(eq(iterations.projectId, projectId))
     .orderBy(asc(iterations.createdAt))
 
+  // Classify intent first (cheap haiku call). Generative requires MESHY_API_KEY;
+  // if missing, fall back to parametric — Claude makes its best attempt.
+  let strategy: 'parametric' | 'generative' = await classifyIntent(message)
+  if (strategy === 'generative' && !process.env.MESHY_API_KEY) strategy = 'parametric'
+
   const [iteration] = await db
     .insert(iterations)
-    .values({ projectId, userMessage: message, status: 'generating' })
+    .values({ projectId, userMessage: message, status: 'generating', strategy })
     .returning()
 
+  if (strategy === 'generative') {
+    const result = await generateMesh({
+      prompt: message,
+      apiKey: process.env.MESHY_API_KEY!,
+    })
+    if (!result.ok) {
+      await db.update(iterations)
+        .set({ status: 'failed', error: result.error })
+        .where(eq(iterations.id, iteration.id))
+      return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
+    }
+
+    let meshUrl: string | null = null
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      const filename = `${session.user.id}/${projectId}/${iteration.id}.stl`
+      const blob = await put(filename, Buffer.from(result.stl), {
+        access: 'public',
+        addRandomSuffix: false,
+      })
+      meshUrl = blob.url
+    }
+
+    await db.update(iterations)
+      .set({ status: 'ready', meshBlobUrl: meshUrl })
+      .where(eq(iterations.id, iteration.id))
+    await db.update(projects)
+      .set({ currentIterationId: iteration.id, updatedAt: new Date() })
+      .where(eq(projects.id, projectId))
+
+    return Response.json({
+      strategy: 'generative',
+      iteration_id: iteration.id,
+      mesh_url: meshUrl,
+      mesh_base64: meshUrl ? null : Buffer.from(result.stl).toString('base64'),
+      meta: result.meta,
+    })
+  }
+
+  // Parametric path: existing JSCAD generation, but return JSON instead of streaming.
   const { system, messages } = buildMessages({
-    history: history.map((h) => ({ userMessage: h.userMessage, jscadCode: h.jscadCode })),
+    history: history
+      .filter((h) => h.strategy === 'parametric')
+      .map((h) => ({ userMessage: h.userMessage, jscadCode: h.jscadCode })),
     newMessage: message,
   })
 
-  const result = streamText({
+  const { text } = await generateText({
     model: getModel(),
     system,
     messages,
-    onFinish: async ({ text }) => {
-      await db
-        .update(iterations)
-        .set({ jscadCode: text, status: 'ready' })
-        .where(eq(iterations.id, iteration.id))
-      await db
-        .update(projects)
-        .set({ currentIterationId: iteration.id, updatedAt: new Date() })
-        .where(eq(projects.id, projectId))
-    },
-    onError: async ({ error }) => {
-      await db
-        .update(iterations)
-        .set({ status: 'failed', error: String(error) })
-        .where(eq(iterations.id, iteration.id))
-    },
+    maxOutputTokens: 4096,
   })
 
-  const response = result.toTextStreamResponse()
-  response.headers.set('x-iteration-id', iteration.id)
-  return response
+  await db.update(iterations)
+    .set({ jscadCode: text, status: 'ready' })
+    .where(eq(iterations.id, iteration.id))
+  await db.update(projects)
+    .set({ currentIterationId: iteration.id, updatedAt: new Date() })
+    .where(eq(projects.id, projectId))
+
+  return Response.json({
+    strategy: 'parametric',
+    iteration_id: iteration.id,
+    jscad_code: text,
+  })
 }
