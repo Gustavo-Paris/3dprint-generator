@@ -110,10 +110,14 @@ const IMAGE_BASE = 'https://api.meshy.ai/openapi/v1'
 
 /**
  * Generate a 3D mesh from an image using Meshy image-to-3D v1.
- * Same 2-stage shape as text-to-3D: preview → refine.
- * Accepts public image URL or a data: URL (data:image/png;base64,...).
  *
- * Total wall time: ~3-7 minutes for both stages.
+ * Unlike v2 text-to-3D, the v1 image-to-3D endpoint is single-stage —
+ * there's no separate refine step. The `should_remesh: true` flag on the
+ * preview call handles topology cleanup and produces a watertight mesh
+ * suitable for slicing.
+ *
+ * Accepts public image URL or a data: URL (data:image/png;base64,...).
+ * Total wall time: ~1-3 minutes.
  */
 export async function generateMeshFromImage(input: MeshyImageInput): Promise<MeshyResult> {
   const headers = {
@@ -122,8 +126,7 @@ export async function generateMeshFromImage(input: MeshyImageInput): Promise<Mes
   }
   const t0 = Date.now()
 
-  // Stage 1: preview
-  const previewCreate = await fetch(`${IMAGE_BASE}/image-to-3d`, {
+  const createRes = await fetch(`${IMAGE_BASE}/image-to-3d`, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -135,43 +138,22 @@ export async function generateMeshFromImage(input: MeshyImageInput): Promise<Mes
       should_texture: false,
     }),
   })
-  if (!previewCreate.ok) {
+  if (!createRes.ok) {
     return {
       ok: false,
-      error: `Meshy image preview create ${previewCreate.status}: ${await previewCreate.text().catch(() => '')}`,
+      error: `Meshy image-to-3d create ${createRes.status}: ${await createRes.text().catch(() => '')}`,
     }
   }
-  const { result: previewTaskId } = (await previewCreate.json()) as { result: string }
-  const previewPoll = await pollImageTask(previewTaskId, headers)
-  if (!previewPoll.ok) return previewPoll
+  const { result: taskId } = (await createRes.json()) as { result: string }
+  const poll = await pollImageTask(taskId, headers)
+  if (!poll.ok) return poll
 
-  // Stage 2: refine. v1 image-to-3d uses `input_task_id` (not `preview_task_id`
-  // like v2 text-to-3d). API parameter naming diverges between versions.
-  const refineCreate = await fetch(`${IMAGE_BASE}/image-to-3d`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      mode: 'refine',
-      input_task_id: previewTaskId,
-      enable_pbr: false,
-    }),
-  })
-  if (!refineCreate.ok) {
-    return {
-      ok: false,
-      error: `Meshy image refine create ${refineCreate.status}: ${await refineCreate.text().catch(() => '')}`,
-    }
-  }
-  const { result: refineTaskId } = (await refineCreate.json()) as { result: string }
-  const refinePoll = await pollImageTask(refineTaskId, headers)
-  if (!refinePoll.ok) return refinePoll
-
-  const objUrl = refinePoll.task.model_urls?.obj
-  if (!objUrl) return { ok: false, error: 'Meshy image refine returned no .obj' }
+  const objUrl = poll.task.model_urls?.obj
+  if (!objUrl) return { ok: false, error: 'Meshy image-to-3d returned no .obj' }
   const objRes = await fetch(objUrl)
   if (!objRes.ok) return { ok: false, error: `Mesh download ${objRes.status}` }
   const stl = objToBinarySTL(await objRes.text())
-  return { ok: true, stl, meta: { task_id: refineTaskId, took_ms: Date.now() - t0 } }
+  return { ok: true, stl, meta: { task_id: taskId, took_ms: Date.now() - t0 } }
 }
 
 async function pollImageTask(
