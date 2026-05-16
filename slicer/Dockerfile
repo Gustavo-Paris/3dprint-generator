@@ -25,12 +25,7 @@ RUN npm install -g pnpm
 # AppImage is a SquashFS with a small ELF runtime prepended; find squashfs magic offset and extract
 WORKDIR /opt/orca
 RUN curl -fL -o orca.AppImage "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.3.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.3.2.AppImage" \
-    && OFFSET=$(python3 -c "
-data = open('orca.AppImage','rb').read()
-idx = data.find(b'hsqs')
-if idx == -1: idx = data.find(b'sqsh')
-print(idx)
-") \
+    && OFFSET=$(python3 -c 'import sys; d=open("orca.AppImage","rb").read(); i=d.find(b"hsqs"); i=d.find(b"sqsh") if i<0 else i; print(i)') \
     && unsquashfs -offset "$OFFSET" -dest orca-extracted orca.AppImage \
     && rm orca.AppImage
 
