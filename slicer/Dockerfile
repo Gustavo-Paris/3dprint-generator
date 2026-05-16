@@ -35,7 +35,7 @@ WORKDIR /app
 COPY package.json ./
 RUN pnpm install
 COPY src ./src
-COPY profiles ./profiles 2>/dev/null || mkdir -p profiles
+COPY profiles ./profiles
 
 EXPOSE 8787
 CMD ["pnpm", "start"]
