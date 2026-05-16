@@ -57,3 +57,7 @@ next-env.d.ts
 
 # graphify analysis output
 /report
+
+# test artifacts
+test-results/
+playwright-report/
