@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     libgtk-3-0 \
     libwebkit2gtk-4.1-0 \
-    libgl1-mesa-glx \
+    libgl1-mesa-dri \
     libegl1 \
     libosmesa6 \
     libgstreamer-plugins-base1.0-0 \
