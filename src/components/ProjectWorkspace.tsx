@@ -15,6 +15,7 @@ type ChatMsg = {
   text: string
   iterationId?: string
   strategy?: 'parametric' | 'generative'
+  imageUrl?: string
 }
 
 function base64ToUint8(b64: string): Uint8Array {
@@ -108,7 +109,11 @@ export default function ProjectWorkspace({
   }
 
   const initialMessages: ChatMsg[] = initialHistory.flatMap((it) => {
-    const userMsg: ChatMsg = { role: 'user', text: it.userMessage }
+    const userMsg: ChatMsg = {
+      role: 'user',
+      text: it.userMessage,
+      imageUrl: it.imageBlobUrl ?? undefined,
+    }
     if (it.strategy === 'parametric' && it.jscadCode) {
       return [
         userMsg,
@@ -116,9 +121,10 @@ export default function ProjectWorkspace({
       ]
     }
     if (it.strategy === 'generative') {
+      const label = it.baseMode === 'with_base' ? 'Generated via Meshy (with trophy base)' : 'Generated via Meshy'
       return [
         userMsg,
-        { role: 'assistant', text: 'Generated via Meshy', iterationId: it.id, strategy: 'generative' },
+        { role: 'assistant', text: label, iterationId: it.id, strategy: 'generative' },
       ]
     }
     return [userMsg]
