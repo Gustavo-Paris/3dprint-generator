@@ -1007,3 +1007,15 @@ If generative quality is poor (Meshy preview is faster but lower-quality), revis
 - **Streaming generative status**: WebSocket or SSE updates from the polling loop into the UI.
 - **Refine mode toggle**: let the user pay more credits for higher quality on a per-iteration basis.
 - **Multi-extruder** (Phase 2 from the original plan, still pending).
+
+## Tracking
+
+Tasks created by `/tn-from-plan` on 2026-05-16 14:19:01:
+- TASK-030: Schema migration — strategy + mesh url
+- TASK-031: Meshy.ai REST client
+- TASK-032: Intent classifier
+- TASK-033: Refactor `/api/generate` to branch on strategy
+- TASK-034: Worker accepts STL input
+- TASK-035: Client wiring — Chat + Workspace handle both paths
+- TASK-036: E2E test with mocked Meshy
+- TASK-037: Manual smoke (human only)
