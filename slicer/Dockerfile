@@ -21,12 +21,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm
 
-# Extract OrcaSlicer AppImage using unsquashfs (avoids executing x86_64 ELF in emulation)
-# AppImage is a SquashFS with a small ELF runtime prepended; find squashfs magic offset and extract
+# Copy extraction helper (finds valid SquashFS v4.0 superblock in AppImage)
+COPY extract-appimage.py /usr/local/bin/extract-appimage.py
+
+# Download and extract OrcaSlicer AppImage (avoids executing x86_64 ELF under qemu)
 WORKDIR /opt/orca
 RUN curl -fL -o orca.AppImage "https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v2.3.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.3.2.AppImage" \
-    && OFFSET=$(python3 -c 'import sys; d=open("orca.AppImage","rb").read(); i=d.find(b"hsqs"); i=d.find(b"sqsh") if i<0 else i; print(i)') \
-    && dd if=orca.AppImage bs=1 skip="$OFFSET" of=orca.squashfs \
+    && python3 /usr/local/bin/extract-appimage.py orca.AppImage orca.squashfs \
     && unsquashfs -dest orca-extracted orca.squashfs \
     && rm orca.AppImage orca.squashfs
 
