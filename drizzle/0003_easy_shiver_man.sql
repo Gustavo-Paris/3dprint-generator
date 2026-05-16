@@ -1,0 +1,1 @@
+ALTER TABLE "iterations" ADD COLUMN "base_mode" text;

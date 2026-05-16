@@ -70,6 +70,7 @@ export const iterations = pgTable('iterations', {
   slicedBlobUrl: text('sliced_blob_url'),
   slicedMeta: jsonb('sliced_meta'),
   slicedAt: timestamp('sliced_at'),
+  baseMode: text('base_mode', { enum: ['mesh_only', 'with_base'] }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
