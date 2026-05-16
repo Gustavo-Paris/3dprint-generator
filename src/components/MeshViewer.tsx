@@ -19,7 +19,10 @@ export default function MeshViewer({ positions }: { positions: Float32Array | nu
       <directionalLight position={[100, 100, 100]} intensity={0.8} />
       <gridHelper args={[200, 20, '#888', '#ddd']} />
       {geometry && (
-        <mesh geometry={geometry}>
+        // JSCAD is Z-up; three.js is Y-up. Rotate -90° around X so "up" agrees
+        // with the viewer's natural orientation (and with the user's mental model
+        // when iterating via chat).
+        <mesh geometry={geometry} rotation={[-Math.PI / 2, 0, 0]}>
           <meshStandardMaterial color="#3b82f6" />
         </mesh>
       )}
