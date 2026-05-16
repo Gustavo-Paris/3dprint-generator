@@ -1,6 +1,6 @@
 ---
 uid: task-025
-status: open
+status: in-progress
 priority: normal
 scheduled: 2026-05-15
 pomodoros: 0

@@ -30,12 +30,16 @@ app.post('/slice', async (req, res) => {
     const outPath = join(work, 'out.3mf')
     writeFileSync(stlPath, Buffer.from(stl_base64, 'base64'))
 
-    const result = spawnSync(ORCA_BIN, [
+    // Run under xvfb-run so OrcaSlicer's Qt/GL init has a virtual display.
+    // Without this, the binary segfaults under qemu x86_64 emulation.
+    const result = spawnSync('xvfb-run', [
+      '-a',
+      '--server-args=-screen 0 1024x768x24',
+      ORCA_BIN,
       '--slice', '0',
       '--load-settings', `${PROFILES_DIR}/machine_h2d_pla.json;${PROFILES_DIR}/process_h2d_pla_0.2mm.json`,
-      // H2D is dual-extruder: pass both slots with the same filament, assign object to extruder 0
-      '--load-filaments', `${PROFILES_DIR}/filament_generic_pla.json;${PROFILES_DIR}/filament_generic_pla.json`,
-      '--load-filament-ids', '0',
+      '--load-filaments', `${PROFILES_DIR}/filament_generic_pla.json`,
+      '--load-filament-ids', '1',
       '--export-3mf', outPath,
       stlPath,
     ], { encoding: 'utf8' })

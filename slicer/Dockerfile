@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     libgstreamer1.0-0 \
     xvfb \
     squashfs-tools \
+    libmspack0 \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
