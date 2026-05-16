@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 3D Print Generator
 
-## Getting Started
+Chat → 3D model → printer-ready file. Internal tool for the Bambu Lab H2D.
 
-First, run the development server:
+See:
+- `docs/superpowers/specs/2026-05-15-3dprint-generator-design.md` — overall design
+- `docs/superpowers/plans/2026-05-15-phase-1-single-body-mvp.md` — this phase
+
+## Local dev
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+docker compose up -d postgres
+cp .env.example .env.local           # fill in secrets — see below
+pnpm install
+pnpm db:migrate
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Required env vars (`.env.local`)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Var | How to get it |
+|---|---|
+| `AUTH_SECRET` | `pnpm dlx auth secret \| tail -1` |
+| `AUTH_RESEND_KEY` | https://resend.com → API Keys |
+| `AUTH_EMAIL_FROM` | A verified Resend sender address |
+| `AUTH_ALLOWED_EMAILS` | Comma-separated allowlist |
+| `AI_GATEWAY_API_KEY` *or* `ANTHROPIC_API_KEY` | https://vercel.com/dashboard/ai or https://console.anthropic.com |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Tests
 
-## Learn More
+```bash
+pnpm test                                # unit + integration (vitest)
+pnpm test:e2e                            # E2E (Playwright) — runs with E2E_ALLOW_TEST_LOGIN
+```
 
-To learn more about Next.js, take a look at the following resources:
+The Playwright config already sets `E2E_ALLOW_TEST_LOGIN=1` for the dev server it spawns.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Phase 1 scope
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Single-body 3D generation end-to-end: sign in → chat → Claude returns JSCAD → browser runs it in a Web Worker → react-three-fiber viewer renders the mesh. Iterations persist as DB rows.
 
-## Deploy on Vercel
+Future phases:
+- **Phase 2** — multi-body convention + multi-extruder viewer (Bambu H2D dual-tool)
+- **Phase 3** — image upload + multimodal Claude prompt
+- **Phase 4** — OrcaSlicer service on Railway + `/api/slice` + 3MF download
+- **Phase 5** — iteration history UI, version tree, sandbox hardening
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Security
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+LLM-generated code runs in a sandboxed Web Worker. See `src/lib/jscad/sandbox.ts` for the threat model and hardening backlog. The sandbox file is the **only** place dynamic code compilation occurs — `git grep -nE "FunctionCtor|dynamicEval"` must only return hits inside that file.
