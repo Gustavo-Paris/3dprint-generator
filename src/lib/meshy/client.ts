@@ -128,7 +128,7 @@ export async function generateMeshFromImage(input: MeshyImageInput): Promise<Mes
     headers,
     body: JSON.stringify({
       image_url: input.imageUrl,
-      ai_model: 'meshy-4',
+      ai_model: 'meshy-6',
       topology: 'triangle',
       target_polycount: 30000,
       should_remesh: true,
