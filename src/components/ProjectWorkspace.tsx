@@ -4,6 +4,7 @@ import type { InferSelectModel } from 'drizzle-orm'
 import type { projects as projectsTable, iterations as iterationsTable } from '@/db/schema'
 import Chat from './Chat'
 import MeshViewer from './MeshViewer'
+import SliceButton from './SliceButton'
 import { runInWorker } from '@/lib/jscad/worker-client'
 
 type Project = InferSelectModel<typeof projectsTable>
@@ -16,10 +17,13 @@ export default function ProjectWorkspace({
   project: Project
   initialHistory: Iteration[]
 }) {
-  const [code, setCode] = useState<string | null>(
-    initialHistory.findLast((it) => it.status === 'ready')?.jscadCode ?? null,
+  const lastReady = initialHistory.findLast(
+    (it) => it.status === 'ready' || it.status === 'sliced',
   )
+  const [code, setCode] = useState<string | null>(lastReady?.jscadCode ?? null)
+  const [iterationId, setIterationId] = useState<string | null>(lastReady?.id ?? null)
   const [positions, setPositions] = useState<Float32Array | null>(null)
+  const [stl, setStl] = useState<Uint8Array | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -29,9 +33,12 @@ export default function ProjectWorkspace({
     runInWorker(code)
       .then((r) => {
         if (cancelled) return
-        if (r.ok) setPositions(r.positions)
-        else {
+        if (r.ok) {
+          setPositions(r.positions)
+          setStl(r.stl)
+        } else {
           setPositions(null)
+          setStl(null)
           setError(r.error)
         }
       })
@@ -58,11 +65,15 @@ export default function ProjectWorkspace({
         <Chat
           projectId={project.id}
           initial={initialMessages}
-          onIterationReady={(_id, c) => setCode(c)}
+          onIterationReady={(id, c) => {
+            setIterationId(id)
+            setCode(c)
+          }}
         />
       </aside>
       <section className="relative bg-gray-50" data-testid="viewer-slot">
         <MeshViewer positions={positions} />
+        <SliceButton iterationId={iterationId} stl={stl} />
         {error && (
           <div className="absolute bottom-4 left-4 right-4 bg-red-50 text-red-900 border border-red-200 rounded p-3 text-xs">
             <strong>JSCAD error:</strong> {error}
