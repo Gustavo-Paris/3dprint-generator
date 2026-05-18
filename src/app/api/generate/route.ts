@@ -282,6 +282,7 @@ export async function POST(req: Request) {
         meshy_took_ms: result.meta.meshyTookMs,
         meshy_triangles: result.meta.meshyTriangleCount,
         logo_triangles: result.meta.logoTriangleCount,
+        logo_strategy: result.meta.logoStrategy,
       },
     })
   }

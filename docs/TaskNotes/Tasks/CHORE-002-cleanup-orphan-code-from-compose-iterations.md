@@ -1,8 +1,9 @@
 ---
 uid: chore-002
-status: in-progress
+status: done
 priority: low
 scheduled: 2026-05-18
+completed: 2026-05-18
 timeEstimate: 30
 pomodoros: 0
 projects:

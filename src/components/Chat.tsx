@@ -90,6 +90,7 @@ export default function Chat({
           synthesized_prompt?: string
           bbox_mm?: { x: number; y: number; z: number }
           meshy_took_ms?: number
+          logo_strategy?: 'flat-x' | 'flat-y' | 'flat-z' | 'tag-side'
         }
       }
       let label: string
@@ -121,7 +122,10 @@ export default function Chat({
         const bb = body.meta.bbox_mm
         const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
         const tookS = ((body.meta.meshy_took_ms ?? 0) / 1000).toFixed(0)
-        label = `Forma via Meshy + tua logo${dims} (Meshy: ${tookS}s)`
+        const strat = body.meta.logo_strategy
+          ? ` · ${body.meta.logo_strategy === 'tag-side' ? 'tag lateral' : 'gravada'}`
+          : ''
+        label = `Forma via Meshy + tua logo${dims} (Meshy: ${tookS}s${strat})`
       } else {
         const tookS = ((body.meta.took_ms ?? 0) / 1000).toFixed(0)
         label = `Generated via Meshy in ${tookS}s`
