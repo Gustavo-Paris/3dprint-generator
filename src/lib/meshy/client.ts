@@ -51,7 +51,9 @@ export async function generateMesh(input: {
   const previewPoll = await pollUntilDone(previewTaskId, headers)
   if (!previewPoll.ok) return previewPoll
 
-  // Stage 2: refine (uses the preview as input)
+  // Stage 2: refine (uses the preview as input). Cap polycount so the output
+  // is light enough for downstream geometric composition (subtract/union) and
+  // for the slicer to handle quickly.
   const refineCreate = await fetch(`${BASE}/text-to-3d`, {
     method: 'POST',
     headers,
@@ -59,6 +61,7 @@ export async function generateMesh(input: {
       mode: 'refine',
       preview_task_id: previewTaskId,
       enable_pbr: false,
+      target_polycount: 8000,
     }),
   })
   if (!refineCreate.ok) {

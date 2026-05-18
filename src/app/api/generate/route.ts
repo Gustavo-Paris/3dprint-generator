@@ -1,18 +1,34 @@
+/**
+ * SINGLE-PATH /api/generate.
+ *
+ * Flow:
+ *   1. Resolve image: fresh upload in this request wins; else most recent
+ *      image in this project's history.
+ *   2. If image has no description yet, describe it once (vision LLM, cached
+ *      to the iteration row so we don't repay for it).
+ *   3. Synthesize a prompt from description + chat history.
+ *   4. Send to Meshy text-to-3D.
+ *   5. Post-process + persist + return.
+ *
+ * NO branches into image-to-3D, no logo-extrude, no parametric JSCAD, no
+ * classifier. Just one path: text-to-3D with a synthesized prompt. Anything
+ * the user can describe gets sent to Meshy verbatim.
+ */
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
-import { buildMessages } from '@/lib/prompt/build'
-import { classifyIntent } from '@/lib/prompt/classify'
-import { detectBaseMode } from '@/lib/prompt/base-detect'
 import { describeImage } from '@/lib/prompt/describe-image'
 import { synthesizeIterationPrompt } from '@/lib/prompt/synthesize-iteration'
-import { getModel } from '@/lib/llm/model'
-import { generateMesh, generateMeshFromImage } from '@/lib/meshy/client'
-import { buildTrophyBase, type BaseSpec } from '@/lib/compose/trophy-base'
-import { composeOnTop } from '@/lib/compose/stl-compose'
+import { generateMesh } from '@/lib/meshy/client'
 import { repairAndPrepareMesh } from '@/lib/compose/repair-mesh'
-import { parseBinarySTL } from '@/lib/jscad/runner'
-import { generateText } from 'ai'
+import { composeKeychain } from '@/lib/compose/keychain'
+import { shouldUseKeychainComposer } from '@/lib/compose/detect-keychain'
+import { composeCoaster } from '@/lib/compose/coaster'
+import { shouldUseCoasterComposer } from '@/lib/compose/detect-coaster'
+import { composeMedal } from '@/lib/compose/medal'
+import { shouldUseMedalComposer } from '@/lib/compose/detect-medal'
+import { parseLogoSizeRatio } from '@/lib/compose/parse-size'
+import { composeWithMeshyBase } from '@/lib/compose/with-meshy-base'
 import { put } from '@vercel/blob'
 import { and, asc, eq } from 'drizzle-orm'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
@@ -20,7 +36,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
-export const maxDuration = 600 // allow up to 10min for image-to-3d preview+refine
+export const maxDuration = 600
 
 const Body = z.object({
   projectId: z.string().uuid(),
@@ -43,163 +59,112 @@ export async function POST(req: Request) {
     .limit(1)
   if (!project) return new Response('Not found', { status: 404 })
 
-  // Image input → always generative (image-to-3d). Skip classifier.
-  if (imageUrl) {
-    if (!process.env.MESHY_API_KEY) {
-      return new Response('Image generation requires MESHY_API_KEY', { status: 503 })
-    }
-
-    const baseMode = detectBaseMode(message)
-
-    // Resolve URL passed to Meshy. Two cases:
-    //   1. Public URL (Vercel Blob in prod): pass through.
-    //   2. Local path (/uploads/xxx.png in dev): Meshy can't reach localhost,
-    //      so read the file from disk and inline it as a base64 data: URL.
-    let resolvedImageUrl: string
-    if (imageUrl.startsWith('http')) {
-      resolvedImageUrl = imageUrl
-    } else if (imageUrl.startsWith('/uploads/')) {
-      const filePath = join(process.cwd(), 'public', imageUrl)
-      const bytes = await readFile(filePath)
-      const ext = imageUrl.split('.').pop()?.toLowerCase() ?? 'png'
-      const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
-      resolvedImageUrl = `data:${mime};base64,${bytes.toString('base64')}`
-    } else {
-      return new Response(`Unrecognized imageUrl: ${imageUrl}`, { status: 400 })
-    }
-
-    const [iteration] = await db
-      .insert(iterations)
-      .values({
-        projectId,
-        userMessage: message,
-        status: 'generating',
-        strategy: 'generative',
-        imageBlobUrl: imageUrl,
-        baseMode,
-      })
-      .returning()
-
-    // Kick off image description in parallel with Meshy — we'll need it for
-    // any future text-only iterations on this image.
-    const descriptionPromise = describeImage(imageUrl).catch((err) => {
-      console.error('describeImage failed:', err)
-      return null
-    })
-
-    const result = await generateMeshFromImage({
-      imageUrl: resolvedImageUrl,
-      apiKey: process.env.MESHY_API_KEY,
-    })
-    if (!result.ok) {
-      await db.update(iterations)
-        .set({ status: 'failed', error: result.error })
-        .where(eq(iterations.id, iteration.id))
-      return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
-    }
-
-    // Post-process Meshy output: merge duplicate verts (fix non-manifold edges
-    // the slicer rejects), un-mirror X, and scale to a printable size.
-    const preparedMesh = repairAndPrepareMesh(result.stl, {
-      targetMaxDim: 60,
-      mirrorX: true,
-    })
-
-    // Compose with trophy base if requested
-    let finalStl: Uint8Array = preparedMesh
-    if (baseMode === 'with_base') {
-      const spec = inferBaseDimsFromMesh(preparedMesh)
-      const baseStl = buildTrophyBase(spec)
-      finalStl = composeOnTop({
-        top: preparedMesh,
-        base: baseStl,
-        baseHeight: spec.height,
-        scaleTopTo: spec.topDiameter * 0.85,
-      })
-    }
-
-    // Persist final STL
-    const meshUrl = await persistMesh(finalStl, session.user.id, projectId, iteration.id)
-    const imageDescription = await descriptionPromise
-
-    await db.update(iterations)
-      .set({ status: 'ready', meshBlobUrl: meshUrl, imageDescription })
-      .where(eq(iterations.id, iteration.id))
-    await db.update(projects)
-      .set({ currentIterationId: iteration.id, updatedAt: new Date() })
-      .where(eq(projects.id, projectId))
-
-    return Response.json({
-      strategy: 'generative',
-      iteration_id: iteration.id,
-      mesh_url: meshUrl,
-      mesh_base64: null,
-      meta: { ...result.meta, base_mode: baseMode, source: 'image' },
-    })
+  if (!process.env.MESHY_API_KEY) {
+    return new Response('MESHY_API_KEY is required', { status: 503 })
   }
 
-  // No image attached on this message → either continue the existing classifier
-  // flow, OR (if the project has a prior image-based generation) switch to
-  // text-to-3D iteration mode using the synthesized description + history.
+  // Pull project history once: we need it for prompt context and to find the
+  // last image + its cached description.
   const history = await db
     .select()
     .from(iterations)
     .where(eq(iterations.projectId, projectId))
     .orderBy(asc(iterations.createdAt))
 
-  // Find the most recent iteration that has an image_description. That's the
-  // anchor for any iterations we route via text-to-3D.
-  const lastImageIteration = [...history].reverse().find(
-    (h) => h.imageBlobUrl && h.imageDescription && h.status === 'ready',
-  )
+  // Image resolution: fresh upload in body wins; else fall back to the most
+  // recent iteration with an image attached.
+  let effectiveImageUrl: string | null = imageUrl ?? null
+  let effectiveDescription: string | null = null
+  if (effectiveImageUrl) {
+    // Fresh upload — see if any prior iteration already described this URL,
+    // saving a vision LLM call.
+    const prior = history.find(
+      (h) => h.imageBlobUrl === effectiveImageUrl && h.imageDescription,
+    )
+    effectiveDescription = prior?.imageDescription ?? null
+  } else {
+    const lastWithImg = [...history].reverse().find((h) => h.imageBlobUrl)
+    if (lastWithImg) {
+      effectiveImageUrl = lastWithImg.imageBlobUrl
+      effectiveDescription = lastWithImg.imageDescription
+    }
+  }
 
-  if (lastImageIteration && process.env.MESHY_API_KEY) {
-    // Iteration on a prior image-based generation. Synthesize a rich prompt
-    // from the image description + all prior user messages in this project +
-    // the new message, then send to Meshy text-to-3D.
-    const allMessages = history.map((h) => h.userMessage).concat([message])
-    const synthesizedPrompt = await synthesizeIterationPrompt({
-      imageDescription: lastImageIteration.imageDescription!,
-      messages: allMessages,
+  // Create iteration up front so we have an id for the response even on failure.
+  const [iteration] = await db
+    .insert(iterations)
+    .values({
+      projectId,
+      userMessage: message,
+      status: 'generating',
+      strategy: 'generative',
+      imageBlobUrl: effectiveImageUrl ?? undefined,
     })
-    const baseMode = detectBaseMode(message) // re-detect from latest message
+    .returning()
 
-    const [iteration] = await db
-      .insert(iterations)
-      .values({
-        projectId,
-        userMessage: message,
-        status: 'generating',
-        strategy: 'generative',
-        baseMode,
-        // Carry the image description forward so subsequent iterations keep
-        // anchoring to the original image.
-        imageDescription: lastImageIteration.imageDescription,
-      })
-      .returning()
+  // ── Deterministic composer paths ──────────────────────────────────────────
+  // When the user's message matches a known object type AND we have a source
+  // image, bypass Meshy and call the corresponding composer. Meshy can't
+  // reproduce specific brand logos; composers do that by extruding the
+  // logo image directly.
+  const composerKind: 'keychain' | 'coaster' | 'medal' | null =
+    effectiveImageUrl && shouldUseMedalComposer(message)
+      ? 'medal'
+      : effectiveImageUrl && shouldUseCoasterComposer(message)
+      ? 'coaster'
+      : effectiveImageUrl && shouldUseKeychainComposer(message)
+      ? 'keychain'
+      : null
 
-    const result = await generateMesh({ prompt: synthesizedPrompt, apiKey: process.env.MESHY_API_KEY })
-    if (!result.ok) {
+  if (composerKind) {
+    let imageBuffer: Buffer
+    try {
+      if (effectiveImageUrl!.startsWith('http')) {
+        const r = await fetch(effectiveImageUrl!)
+        if (!r.ok) throw new Error(`Image fetch ${r.status}`)
+        imageBuffer = Buffer.from(await r.arrayBuffer())
+      } else {
+        imageBuffer = await readFile(join(process.cwd(), 'public', effectiveImageUrl!))
+      }
+    } catch (err) {
       await db.update(iterations)
-        .set({ status: 'failed', error: result.error })
+        .set({ status: 'failed', error: `Could not read source image: ${(err as Error).message}` })
         .where(eq(iterations.id, iteration.id))
-      return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
+      return Response.json({ error: 'source image unreadable', iteration_id: iteration.id }, { status: 502 })
     }
 
-    const preparedMesh = repairAndPrepareMesh(result.stl, { targetMaxDim: 60, mirrorX: false })
-    let finalStl: Uint8Array = preparedMesh
-    if (baseMode === 'with_base') {
-      const spec = inferBaseDimsFromMesh(preparedMesh)
-      const baseStl = buildTrophyBase(spec)
-      finalStl = composeOnTop({
-        top: preparedMesh,
-        base: baseStl,
-        baseHeight: spec.height,
-        scaleTopTo: spec.topDiameter * 0.85,
-      })
+    let resultStl: Uint8Array
+    let resultBboxMm: { x: number; y: number; z: number }
+    let resultLogoBboxMm: { x: number; y: number; z: number }
+    try {
+      const logoSizeRatio = parseLogoSizeRatio(message)
+      if (composerKind === 'keychain') {
+        const r = await composeKeychain({ imageBuffer, logoSizeRatio })
+        resultStl = r.stl
+        resultBboxMm = r.meta.bboxMm
+        resultLogoBboxMm = r.meta.logoBboxMm
+      } else if (composerKind === 'coaster') {
+        const r = await composeCoaster({ imageBuffer, logoSizeRatio })
+        resultStl = r.stl
+        resultBboxMm = r.meta.bboxMm
+        resultLogoBboxMm = r.meta.logoBboxMm
+      } else {
+        const r = await composeMedal({ imageBuffer, logoSizeRatio })
+        resultStl = r.stl
+        resultBboxMm = r.meta.bboxMm
+        // medal meta doesn't have logoBboxMm, use zero
+        resultLogoBboxMm = { x: 0, y: 0, z: 0 }
+      }
+    } catch (err) {
+      const e = err as Error
+      console.error(`[${composerKind}] failed:`, e.stack ?? e.message)
+      await db.update(iterations)
+        .set({ status: 'failed', error: `${composerKind} compose failed: ${e.message}` })
+        .where(eq(iterations.id, iteration.id))
+      return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
     }
-    const meshUrl = await persistMesh(finalStl, session.user.id, projectId, iteration.id)
 
+    const meshUrl = await persistMesh(resultStl, session.user.id, projectId, iteration.id)
     await db.update(iterations)
       .set({ status: 'ready', meshBlobUrl: meshUrl })
       .where(eq(iterations.id, iteration.id))
@@ -213,36 +178,59 @@ export async function POST(req: Request) {
       mesh_url: meshUrl,
       mesh_base64: null,
       meta: {
-        ...result.meta,
-        base_mode: baseMode,
-        source: 'iteration',
-        synthesized_prompt: synthesizedPrompt,
+        source:
+          composerKind === 'keychain'
+            ? 'keychain_compose'
+            : composerKind === 'coaster'
+            ? 'coaster_compose'
+            : 'medal_compose',
+        bbox_mm: resultBboxMm,
+        logo_bbox_mm: resultLogoBboxMm,
       },
     })
   }
+  // ── end composer paths ────────────────────────────────────────────────────
 
-  let strategy: 'parametric' | 'generative' = await classifyIntent(message)
-  if (strategy === 'generative' && !process.env.MESHY_API_KEY) strategy = 'parametric'
-
-  const [iteration] = await db
-    .insert(iterations)
-    .values({ projectId, userMessage: message, status: 'generating', strategy })
-    .returning()
-
-  if (strategy === 'generative') {
-    const result = await generateMesh({ prompt: message, apiKey: process.env.MESHY_API_KEY! })
-    if (!result.ok) {
+  // ── Universal Meshy + logo composer ───────────────────────────────────────
+  // If we have an image AND a text message (anything not matched by the
+  // dedicated composers above), let Meshy generate the SHAPE from the text
+  // and slap the user's actual logo on the front face. This is how "trofeu",
+  // "estatueta", "porta-canetas", any decorative form, gets the real logo
+  // without Meshy improvising a fake version of it.
+  if (effectiveImageUrl) {
+    let imageBuffer: Buffer
+    try {
+      if (effectiveImageUrl.startsWith('http')) {
+        const r = await fetch(effectiveImageUrl)
+        if (!r.ok) throw new Error(`Image fetch ${r.status}`)
+        imageBuffer = Buffer.from(await r.arrayBuffer())
+      } else {
+        imageBuffer = await readFile(join(process.cwd(), 'public', effectiveImageUrl))
+      }
+    } catch (err) {
       await db.update(iterations)
-        .set({ status: 'failed', error: result.error })
+        .set({ status: 'failed', error: `Could not read source image: ${(err as Error).message}` })
         .where(eq(iterations.id, iteration.id))
-      return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
+      return Response.json({ error: 'source image unreadable', iteration_id: iteration.id }, { status: 502 })
     }
-    // Post-process: scale to printable size + merge dup verts. Text-to-3d refine
-    // is usually manifold but the scale is normalized — always needs scaling up.
-    // No mirror needed (no image asymmetry to flip).
-    const prepared = repairAndPrepareMesh(result.stl, { targetMaxDim: 60, mirrorX: false })
-    const meshUrl = await persistMesh(prepared, session.user.id, projectId, iteration.id)
 
+    let result
+    try {
+      result = await composeWithMeshyBase({
+        shapePrompt: message, // raw user text — let Meshy interpret freely
+        meshyApiKey: process.env.MESHY_API_KEY,
+        logoImageBuffer: imageBuffer,
+      })
+    } catch (err) {
+      const e = err as Error
+      console.error('[meshy-with-logo] failed:', e.stack ?? e.message)
+      await db.update(iterations)
+        .set({ status: 'failed', error: `Compose failed: ${e.message}` })
+        .where(eq(iterations.id, iteration.id))
+      return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
+    }
+
+    const meshUrl = await persistMesh(result.stl, session.user.id, projectId, iteration.id)
     await db.update(iterations)
       .set({ status: 'ready', meshBlobUrl: meshUrl })
       .where(eq(iterations.id, iteration.id))
@@ -255,43 +243,89 @@ export async function POST(req: Request) {
       iteration_id: iteration.id,
       mesh_url: meshUrl,
       mesh_base64: null,
-      meta: result.meta,
+      meta: {
+        source: 'meshy_with_logo',
+        bbox_mm: result.meta.bboxMm,
+        meshy_took_ms: result.meta.meshyTookMs,
+        meshy_triangles: result.meta.meshyTriangleCount,
+        logo_triangles: result.meta.logoTriangleCount,
+      },
     })
   }
+  // ── end universal composer ────────────────────────────────────────────────
 
-  // Parametric
-  const { system, messages } = buildMessages({
-    history: history
-      .filter((h) => h.strategy === 'parametric')
-      .map((h) => ({ userMessage: h.userMessage, jscadCode: h.jscadCode })),
-    newMessage: message,
-  })
+  // Describe the image now if we don't already have a cached description.
+  if (effectiveImageUrl && !effectiveDescription) {
+    try {
+      effectiveDescription = await describeImage(effectiveImageUrl)
+    } catch (err) {
+      console.error('[generate] describeImage failed (continuing without description):', err)
+    }
+  }
+  if (effectiveDescription) {
+    await db.update(iterations)
+      .set({ imageDescription: effectiveDescription })
+      .where(eq(iterations.id, iteration.id))
+  }
 
-  const { text } = await generateText({
-    model: getModel(),
-    system,
-    messages,
-    maxOutputTokens: 4096,
+  // Build Meshy prompt. If we have a logo description, synth combines it with
+  // the user's chat history; otherwise we just pass the message through raw.
+  const allMessages = history.map((h) => h.userMessage).concat([message])
+  let prompt: string
+  if (effectiveDescription) {
+    try {
+      prompt = await synthesizeIterationPrompt({
+        imageDescription: effectiveDescription,
+        messages: allMessages,
+      })
+    } catch (err) {
+      console.error('[generate] synthesize failed, using raw message:', err)
+      prompt = message
+    }
+  } else {
+    prompt = message
+  }
+
+  // Off to Meshy.
+  const result = await generateMesh({ prompt, apiKey: process.env.MESHY_API_KEY })
+  if (!result.ok) {
+    await db.update(iterations)
+      .set({ status: 'failed', error: result.error })
+      .where(eq(iterations.id, iteration.id))
+    return Response.json({ error: result.error, iteration_id: iteration.id }, { status: 502 })
+  }
+
+  // Light post-processing: merge near-duplicate verts (slicer manifold fix) and
+  // scale to printable size. No mirror, no Y-up→Z-up — Meshy text-to-3D's
+  // output already plays nicely with our viewer/slicer convention.
+  const prepared = repairAndPrepareMesh(result.stl, {
+    targetMaxDim: 60,
+    mirrorX: false,
+    yUpToZUp: true, // Meshy text-to-3D outputs Y-up; viewer expects Z-up
   })
+  const meshUrl = await persistMesh(prepared, session.user.id, projectId, iteration.id)
 
   await db.update(iterations)
-    .set({ jscadCode: text, status: 'ready' })
+    .set({ status: 'ready', meshBlobUrl: meshUrl })
     .where(eq(iterations.id, iteration.id))
   await db.update(projects)
     .set({ currentIterationId: iteration.id, updatedAt: new Date() })
     .where(eq(projects.id, projectId))
 
   return Response.json({
-    strategy: 'parametric',
+    strategy: 'generative',
     iteration_id: iteration.id,
-    jscad_code: text,
+    mesh_url: meshUrl,
+    mesh_base64: null,
+    meta: {
+      task_id: result.meta.task_id,
+      took_ms: result.meta.took_ms,
+      source: effectiveImageUrl ? 'image+text' : 'text',
+      synthesized_prompt: prompt,
+    },
   })
 }
 
-/**
- * Save mesh STL bytes either to Vercel Blob (prod) or to public/meshes (dev).
- * Returns the URL the browser can fetch from.
- */
 async function persistMesh(
   stl: Uint8Array,
   userId: string,
@@ -309,31 +343,4 @@ async function persistMesh(
   await mkdir(dir, { recursive: true })
   await writeFile(join(dir, `${iterationId}.stl`), Buffer.from(stl))
   return `/meshes/${iterationId}.stl`
-}
-
-/**
- * Derive trophy base dimensions from the logo mesh bbox.
- * Heuristics:
- *  - topDiameter = max(bbox.x, bbox.y) * 1.2  (gives the logo some breathing room on the base)
- *  - bottomDiameter = topDiameter * 1.3        (stable taper)
- *  - height = max(20, bbox.z * 0.5)            (at least 20mm; otherwise 50% of logo height)
- */
-function inferBaseDimsFromMesh(stl: Uint8Array): BaseSpec {
-  const positions = parseBinarySTL(stl)
-  let minX = Infinity, maxX = -Infinity
-  let minY = Infinity, maxY = -Infinity
-  let minZ = Infinity, maxZ = -Infinity
-  for (let i = 0; i < positions.length; i += 3) {
-    const x = positions[i], y = positions[i + 1], z = positions[i + 2]
-    if (x < minX) minX = x; if (x > maxX) maxX = x
-    if (y < minY) minY = y; if (y > maxY) maxY = y
-    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z
-  }
-  const sizeX = maxX - minX
-  const sizeY = maxY - minY
-  const sizeZ = maxZ - minZ
-  const topDiameter = Math.max(sizeX, sizeY) * 1.2
-  const bottomDiameter = topDiameter * 1.3
-  const height = Math.max(20, sizeZ * 0.5)
-  return { topDiameter, bottomDiameter, height }
 }

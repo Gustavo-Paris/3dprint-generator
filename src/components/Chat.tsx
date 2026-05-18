@@ -7,6 +7,7 @@ type Msg = {
   iterationId?: string
   strategy?: 'parametric' | 'generative'
   imageUrl?: string
+  synthesizedPrompt?: string
 }
 
 export type ChatResult =
@@ -60,8 +61,13 @@ export default function Chat({
   async function send() {
     if ((!draft.trim() && !attachedImage) || busy) return
     const userText = draft.trim() || (attachedImage ? '(image only)' : '')
-    const imgUrl = attachedImage?.url
-    setMessages((m) => [...m, { role: 'user', text: userText, imageUrl: imgUrl }])
+    // Always send the imageUrl when we have one. The backend has a single path:
+    // it describes the image once and synthesizes a prompt from description +
+    // user text. There's no longer a "image-to-3D vs text-to-3D" branch to worry
+    // about — carried image just gets reused (description cached server-side).
+    const imgUrl = attachedImage && !attachedImage.carried ? attachedImage.url : undefined
+    const displayImage = attachedImage?.url
+    setMessages((m) => [...m, { role: 'user', text: userText, imageUrl: displayImage }])
     setDraft('')
     setAttachedImage(null)
     setBusy(true)
@@ -72,45 +78,58 @@ export default function Chat({
         body: JSON.stringify({ projectId, message: userText, imageUrl: imgUrl }),
       })
       if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
-      const body = (await res.json()) as
-        | { strategy: 'parametric'; iteration_id: string; jscad_code: string }
-        | {
-            strategy: 'generative'
-            iteration_id: string
-            mesh_url: string | null
-            mesh_base64: string | null
-            meta: { task_id: string; took_ms: number; base_mode?: string; source?: 'image' | 'iteration'; synthesized_prompt?: string }
-          }
-
-      if (body.strategy === 'parametric') {
-        setMessages((m) => [
-          ...m,
-          { role: 'assistant', text: body.jscad_code, iterationId: body.iteration_id, strategy: 'parametric' },
-        ])
-        onResult({ kind: 'parametric', iterationId: body.iteration_id, code: body.jscad_code })
-      } else {
-        const sourceLabel =
-          body.meta.source === 'iteration' ? 'Iterated via Meshy text-to-3D' : 'Generated via Meshy'
-        const baseLabel = body.meta.base_mode === 'with_base' ? ' (with trophy base)' : ''
-        const synthLabel = body.meta.synthesized_prompt
-          ? `\n\nSynthesized prompt: "${body.meta.synthesized_prompt}"`
-          : ''
-        setMessages((m) => [
-          ...m,
-          {
-            role: 'assistant',
-            text: `${sourceLabel} in ${(body.meta.took_ms / 1000).toFixed(0)}s${baseLabel}${synthLabel}`,
-            iterationId: body.iteration_id,
-            strategy: 'generative',
-          },
-        ])
-        onResult({
-          kind: 'generative',
-          iterationId: body.iteration_id,
-          meshUrl: body.mesh_url,
-          meshBase64: body.mesh_base64,
-        })
+      const body = (await res.json()) as {
+        strategy: 'generative'
+        iteration_id: string
+        mesh_url: string | null
+        mesh_base64: string | null
+        meta: {
+          task_id?: string
+          took_ms?: number
+          source?: 'image+text' | 'text' | 'keychain_compose' | 'coaster_compose' | 'medal_compose' | 'meshy_with_logo'
+          synthesized_prompt?: string
+          bbox_mm?: { x: number; y: number; z: number }
+          meshy_took_ms?: number
+        }
       }
+      let label: string
+      if (body.meta.source === 'keychain_compose') {
+        const bb = body.meta.bbox_mm
+        const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
+        label = `Chaveiro com tua logo${dims}`
+      } else if (body.meta.source === 'coaster_compose') {
+        const bb = body.meta.bbox_mm
+        const dims = bb ? ` (⌀${bb.x.toFixed(0)} × ${bb.z.toFixed(0)} mm)` : ''
+        label = `Porta-copo com tua logo${dims}`
+      } else if (body.meta.source === 'medal_compose') {
+        const bb = body.meta.bbox_mm
+        const dims = bb ? ` (⌀${bb.x.toFixed(0)} × ${bb.z.toFixed(0)} mm)` : ''
+        label = `Medalha com tua logo${dims}`
+      } else if (body.meta.source === 'meshy_with_logo') {
+        const bb = body.meta.bbox_mm
+        const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
+        const tookS = ((body.meta.meshy_took_ms ?? 0) / 1000).toFixed(0)
+        label = `Forma via Meshy + tua logo${dims} (Meshy: ${tookS}s)`
+      } else {
+        const tookS = ((body.meta.took_ms ?? 0) / 1000).toFixed(0)
+        label = `Generated via Meshy in ${tookS}s`
+      }
+      setMessages((m) => [
+        ...m,
+        {
+          role: 'assistant',
+          text: label,
+          iterationId: body.iteration_id,
+          strategy: 'generative',
+          synthesizedPrompt: body.meta.synthesized_prompt,
+        },
+      ])
+      onResult({
+        kind: 'generative',
+        iterationId: body.iteration_id,
+        meshUrl: body.mesh_url,
+        meshBase64: body.mesh_base64,
+      })
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', text: `Error: ${(e as Error).message}` }])
     } finally {
@@ -144,13 +163,28 @@ export default function Chat({
                 {m.strategy === 'generative' ? 'meshy' : 'jscad'}
               </span>
             )}
+            {m.role === 'assistant' && m.synthesizedPrompt && (
+              <div className="mt-2 max-w-[90%] border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-left">
+                <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold mb-1">
+                  Prompt enviado ao Meshy
+                </div>
+                <div className="text-xs text-gray-800 whitespace-pre-wrap">{m.synthesizedPrompt}</div>
+                <div className="mt-1.5 text-[10px] text-gray-500">
+                  Se a saída não te agradar, ajuste sua próxima mensagem pra empurrar contra o que está aqui.
+                </div>
+              </div>
+            )}
           </div>
         ))}
         {busy && <div className="text-gray-400 text-xs">Generating…</div>}
       </div>
 
       {attachedImage && (
-        <div className="px-4 pb-2 pt-2 flex items-center gap-2 border-t bg-amber-50">
+        <div
+          className={`px-4 pb-2 pt-2 flex items-center gap-2 border-t ${
+            attachedImage.carried ? 'bg-slate-50' : 'bg-emerald-50'
+          }`}
+        >
           <img
             src={attachedImage.url}
             alt="attached preview"
@@ -158,8 +192,8 @@ export default function Chat({
           />
           <span className="text-xs text-gray-700 flex-1 truncate">
             {attachedImage.carried
-              ? '↻ carrying image from previous iteration — click ✕ to start fresh'
-              : (attachedImage.file?.name ?? 'attached image')}
+              ? '↻ imagem de referência — seu texto modifica via text-to-3D'
+              : `🆕 upload novo — vai regenerar do zero via image-to-3D (texto será ignorado)`}
           </span>
           <button
             onClick={() => setAttachedImage(null)}
@@ -212,6 +246,7 @@ export default function Chat({
           Send
         </button>
       </form>
+
     </>
   )
 }

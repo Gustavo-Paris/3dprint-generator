@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
   devIndicators: {
     position: 'bottom-right',
   },
+  // Don't bundle these — they're CommonJS libs that rely on `require()`
+  // returning a class directly (e.g. potrace does `target instanceof Jimp`).
+  // Turbopack's CJS interop wraps the export in `{ default }`, which makes
+  // `Jimp` a non-callable object and breaks `instanceof`.
+  serverExternalPackages: ['potrace', 'jimp', 'sharp', '@jscad/modeling'],
 };
 
 export default nextConfig;
