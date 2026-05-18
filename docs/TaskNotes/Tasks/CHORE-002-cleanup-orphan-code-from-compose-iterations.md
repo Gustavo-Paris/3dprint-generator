@@ -1,6 +1,6 @@
 ---
 uid: chore-002
-status: open
+status: in-progress
 priority: low
 scheduled: 2026-05-18
 timeEstimate: 30

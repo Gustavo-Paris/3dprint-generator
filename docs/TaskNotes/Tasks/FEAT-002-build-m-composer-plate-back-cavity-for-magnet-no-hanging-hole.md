@@ -1,8 +1,9 @@
 ---
 uid: feat-002
-status: open
+status: done
 priority: normal
 scheduled: 2026-05-18
+completed: 2026-05-18
 timeEstimate: 30
 pomodoros: 0
 projects:
