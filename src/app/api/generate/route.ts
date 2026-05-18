@@ -31,6 +31,8 @@ import { composePingente } from '@/lib/compose/pingente'
 import { shouldUsePingenteComposer } from '@/lib/compose/detect-pingente'
 import { composeIma } from '@/lib/compose/ima'
 import { shouldUseImaComposer } from '@/lib/compose/detect-ima'
+import { composePlaquinha } from '@/lib/compose/plaquinha'
+import { shouldUsePlaquinhaComposer } from '@/lib/compose/detect-plaquinha'
 import { parseLogoSizeRatio } from '@/lib/compose/parse-size'
 import { composeWithMeshyBase } from '@/lib/compose/with-meshy-base'
 import { put } from '@vercel/blob'
@@ -111,8 +113,11 @@ export async function POST(req: Request) {
   // image, bypass Meshy and call the corresponding composer. Meshy can't
   // reproduce specific brand logos; composers do that by extruding the
   // logo image directly.
-  const composerKind: 'keychain' | 'coaster' | 'medal' | 'pingente' | 'ima' | null =
-    effectiveImageUrl && shouldUseImaComposer(message)
+  const composerKind:
+    | 'keychain' | 'coaster' | 'medal' | 'pingente' | 'ima' | 'plaquinha' | null =
+    effectiveImageUrl && shouldUsePlaquinhaComposer(message)
+      ? 'plaquinha'
+      : effectiveImageUrl && shouldUseImaComposer(message)
       ? 'ima'
       : effectiveImageUrl && shouldUsePingenteComposer(message)
       ? 'pingente'
@@ -166,8 +171,13 @@ export async function POST(req: Request) {
         resultStl = r.stl
         resultBboxMm = r.meta.bboxMm
         resultLogoBboxMm = { x: 0, y: 0, z: 0 }
-      } else {
+      } else if (composerKind === 'ima') {
         const r = await composeIma({ imageBuffer, logoSizeRatio })
+        resultStl = r.stl
+        resultBboxMm = r.meta.bboxMm
+        resultLogoBboxMm = { x: 0, y: 0, z: 0 }
+      } else {
+        const r = await composePlaquinha({ imageBuffer, logoSizeRatio })
         resultStl = r.stl
         resultBboxMm = r.meta.bboxMm
         resultLogoBboxMm = { x: 0, y: 0, z: 0 }
@@ -204,7 +214,9 @@ export async function POST(req: Request) {
             ? 'medal_compose'
             : composerKind === 'pingente'
             ? 'pingente_compose'
-            : 'ima_compose',
+            : composerKind === 'ima'
+            ? 'ima_compose'
+            : 'plaquinha_compose',
         bbox_mm: resultBboxMm,
         logo_bbox_mm: resultLogoBboxMm,
       },
