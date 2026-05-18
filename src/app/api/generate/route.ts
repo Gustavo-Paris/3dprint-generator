@@ -27,6 +27,8 @@ import { composeCoaster } from '@/lib/compose/coaster'
 import { shouldUseCoasterComposer } from '@/lib/compose/detect-coaster'
 import { composeMedal } from '@/lib/compose/medal'
 import { shouldUseMedalComposer } from '@/lib/compose/detect-medal'
+import { composePingente } from '@/lib/compose/pingente'
+import { shouldUsePingenteComposer } from '@/lib/compose/detect-pingente'
 import { parseLogoSizeRatio } from '@/lib/compose/parse-size'
 import { composeWithMeshyBase } from '@/lib/compose/with-meshy-base'
 import { put } from '@vercel/blob'
@@ -107,8 +109,10 @@ export async function POST(req: Request) {
   // image, bypass Meshy and call the corresponding composer. Meshy can't
   // reproduce specific brand logos; composers do that by extruding the
   // logo image directly.
-  const composerKind: 'keychain' | 'coaster' | 'medal' | null =
-    effectiveImageUrl && shouldUseMedalComposer(message)
+  const composerKind: 'keychain' | 'coaster' | 'medal' | 'pingente' | null =
+    effectiveImageUrl && shouldUsePingenteComposer(message)
+      ? 'pingente'
+      : effectiveImageUrl && shouldUseMedalComposer(message)
       ? 'medal'
       : effectiveImageUrl && shouldUseCoasterComposer(message)
       ? 'coaster'
@@ -148,11 +152,15 @@ export async function POST(req: Request) {
         resultStl = r.stl
         resultBboxMm = r.meta.bboxMm
         resultLogoBboxMm = r.meta.logoBboxMm
-      } else {
+      } else if (composerKind === 'medal') {
         const r = await composeMedal({ imageBuffer, logoSizeRatio })
         resultStl = r.stl
         resultBboxMm = r.meta.bboxMm
-        // medal meta doesn't have logoBboxMm, use zero
+        resultLogoBboxMm = { x: 0, y: 0, z: 0 }
+      } else {
+        const r = await composePingente({ imageBuffer, logoSizeRatio })
+        resultStl = r.stl
+        resultBboxMm = r.meta.bboxMm
         resultLogoBboxMm = { x: 0, y: 0, z: 0 }
       }
     } catch (err) {
@@ -183,7 +191,9 @@ export async function POST(req: Request) {
             ? 'keychain_compose'
             : composerKind === 'coaster'
             ? 'coaster_compose'
-            : 'medal_compose',
+            : composerKind === 'medal'
+            ? 'medal_compose'
+            : 'pingente_compose',
         bbox_mm: resultBboxMm,
         logo_bbox_mm: resultLogoBboxMm,
       },

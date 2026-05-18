@@ -86,7 +86,7 @@ export default function Chat({
         meta: {
           task_id?: string
           took_ms?: number
-          source?: 'image+text' | 'text' | 'keychain_compose' | 'coaster_compose' | 'medal_compose' | 'meshy_with_logo'
+          source?: 'image+text' | 'text' | 'keychain_compose' | 'coaster_compose' | 'medal_compose' | 'pingente_compose' | 'meshy_with_logo'
           synthesized_prompt?: string
           bbox_mm?: { x: number; y: number; z: number }
           meshy_took_ms?: number
@@ -105,6 +105,10 @@ export default function Chat({
         const bb = body.meta.bbox_mm
         const dims = bb ? ` (⌀${bb.x.toFixed(0)} × ${bb.z.toFixed(0)} mm)` : ''
         label = `Medalha com tua logo${dims}`
+      } else if (body.meta.source === 'pingente_compose') {
+        const bb = body.meta.bbox_mm
+        const dims = bb ? ` (⌀${bb.x.toFixed(0)} × ${bb.z.toFixed(0)} mm)` : ''
+        label = `Pingente com tua logo${dims}`
       } else if (body.meta.source === 'meshy_with_logo') {
         const bb = body.meta.bbox_mm
         const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
