@@ -51,6 +51,12 @@ import { computeOtsuThreshold } from './otsu'
 const { primitives, booleans, extrusions, transforms, geometries } = jscad
 const { extrudeLinear } = extrusions
 
+/** HSV saturation (0..255) above which a pixel counts as "coloured ink". */
+const COLOR_INK_SAT = 100
+/** Min fraction of coloured-ink pixels for the saturation mask to kick in.
+ *  Below this the logo is treated as monochrome (luminance path). */
+const COLOR_INK_FRACTION = 0.01
+
 export interface CropBox {
   /** Pixel coordinates within the source image. All four values are required. */
   left: number
@@ -72,11 +78,17 @@ export interface LogoExtrudeOptions {
   /** Explicit pixel rectangle to extract before processing. Wins over `cropFraction`.
    * When set, auto-trim is skipped (the user already cropped tight). */
   cropBox?: CropBox
-  /** Potrace turdSize — ignore speckles smaller than this many pixels. Default 8. */
+  /** Potrace turdSize — ignore speckles smaller than this many pixels.
+   *  Default 4 (compromise: filters anti-aliasing noise around stroke
+   *  edges while preserving thin strokes in line-art monograms). */
   turdSize?: number
   /** Manual binarization threshold (0..255). When omitted, potrace's Otsu
    * auto-threshold is used. Override when auto produces a bad cut for THIS image. */
   threshold?: number
+  /** Sharp pre-binarisation threshold (0..255). Pixels darker than this
+   * become pure black before potrace; lighter become pure white. Default
+   * 230 — robust for gradient / light-coloured logos. */
+  binaryThreshold?: number
   /** Force polarity inversion regardless of mean-luminance auto-detect. */
   forceInvert?: boolean
   /** Skip the auto-trim step (e.g. user already cropped tight, no margins to remove). */
@@ -86,6 +98,17 @@ export interface LogoExtrudeOptions {
    * as a solid shape, instead of just the thin OUTLINE of a letter.
    * Default: false (preserve letter counters faithfully). */
   ignoreHoles?: boolean
+  /**
+   * Extrusion mode:
+   *  - `silhouette` (default): outer polygons minus their holes — the
+   *    "ink" of the logo. Used by through_cut / engraved / embossed.
+   *  - `channels_only`: extrude JUST the holes (the white space inside
+   *    each outer polygon). Used for the `channels` treatment, which
+   *    engraves the negative space inside each letter while leaving the
+   *    actual strokes at plate level. Outer-most background space (outside
+   *    every outer polygon) is never touched.
+   */
+  mode?: 'silhouette' | 'channels_only'
   /** Smarter alternative to `ignoreHoles`: per outer subpath, decide whether
    * to keep ALL or NONE of its holes based on the SUM of hole areas.
    *
@@ -122,6 +145,7 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   const cropFraction = opts.cropFraction ?? 1
   const turdSize = opts.turdSize ?? 8
   const manualThreshold = opts.threshold // undefined = use Otsu
+  const mode = opts.mode ?? 'silhouette'
   const forceInvert = opts.forceInvert
   const skipTrim = opts.skipTrim ?? !!opts.cropBox
   const ignoreHoles = opts.ignoreHoles ?? false
@@ -146,20 +170,96 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
       }
     : { left: 0, top: 0, width: Math.max(1, Math.floor(fullWidth * cropFraction)), height: fullHeight }
 
-  // Step 1b: produce a clean grayscale buffer. Flatten transparency against
-  // white, then a light blur (sigma=0.8) to kill compression halos / checker
-  // patterns without erasing fine logo detail (text, icons, etc).
+  // Step 1b: produce a grayscale buffer for potrace.
   //
-  // Earlier value sigma=2 was aggressive and worked for JPG screenshots with
-  // baked-in transparency checker patterns, but it also smudged thin strokes
-  // and small letters. sigma=0.8 is the smallest that still cleans up
-  // checker patterns while keeping crisp logo edges.
-  let grayscale = await sharp(opts.imageBuffer)
-    .extract(rect)
-    .flatten({ background: '#ffffff' })
-    .grayscale()
-    .blur(0.8)
-    .toBuffer()
+  // FAST PATH — PNG with an alpha channel: the designer already encoded
+  // the ink/background mask perfectly via transparency. Use it directly.
+  // Negate so opaque pixels (the logo strokes) become BLACK (potrace's
+  // "ink") and transparent pixels (channels + background) become WHITE.
+  // This sidesteps every threshold / contrast / gradient pitfall.
+  //
+  // COLOUR PATH — no usable alpha but the logo is coloured ink on an
+  // achromatic background (white / black / a baked-in transparency
+  // checkerboard). The HSV saturation channel IS the ink mask: achromatic
+  // pixels have ~0 saturation and drop out no matter how light or dark they
+  // are. This is what rescues a logo exported with the editor's transparency
+  // grid flattened into opaque pixels.
+  //
+  // LUMA PATH — monochrome logo, no colour signal: flatten against white,
+  // grayscale, normalize the histogram, light blur to kill JPEG halos,
+  // optional manual binary cut via `opts.binaryThreshold`.
+  //
+  // Alpha is "useful" only if it actually varies — a fully-opaque PNG has
+  // hasAlpha=true but the alpha channel is useless (all 255).
+  let alphaIsUseful = false
+  if (meta.hasAlpha) {
+    const allStats = await sharp(opts.imageBuffer).stats()
+    const alphaCh = allStats.channels[allStats.channels.length - 1]
+    alphaIsUseful = !!alphaCh && alphaCh.min < 240
+  }
+
+  let grayscale: Buffer
+  if (alphaIsUseful) {
+    // Extract the alpha mask, negate (opaque → black ink). Trace it at the
+    // image's native resolution — upscaling here just interpolates (no real
+    // detail gained) and smudges edges, which potrace then traces with extra
+    // wobble. Native res keeps the designer-authored mask crisp.
+    grayscale = await sharp(opts.imageBuffer)
+      .extract(rect)
+      .extractChannel('alpha')
+      .negate()
+      .toBuffer()
+  } else {
+    // No usable alpha. Read raw RGB once and compute per-pixel HSV saturation.
+    // Achromatic pixels (r≈g≈b) — white, black, every grey checkerboard
+    // square — have saturation ≈ 0. A coloured logo's strokes have high
+    // saturation. So if the image carries enough colour signal, the
+    // saturation channel is a clean ink mask immune to the background.
+    const { data, info } = await sharp(opts.imageBuffer)
+      .extract(rect)
+      .flatten({ background: '#ffffff' })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const px = info.width * info.height
+    const sat = Buffer.alloc(px)
+    let colouredCount = 0
+    for (let i = 0, p = 0; p < px; i += info.channels, p++) {
+      const r = data[i], g = data[i + 1], b = data[i + 2]
+      const mx = Math.max(r, g, b)
+      const mn = Math.min(r, g, b)
+      const s = mx === 0 ? 0 : Math.round(((mx - mn) / mx) * 255)
+      sat[p] = s
+      if (s > COLOR_INK_SAT) colouredCount++
+    }
+
+    if (colouredCount / px >= COLOR_INK_FRACTION) {
+      // COLOUR PATH: saturated pixels are ink → negate so ink is dark for
+      // potrace. A light blur smooths JPEG chroma-block noise without
+      // eroding thin strokes.
+      let pipeline = sharp(sat, {
+        raw: { width: info.width, height: info.height, channels: 1 },
+      })
+        .negate()
+        .blur(0.5)
+      if (opts.binaryThreshold !== undefined) {
+        pipeline = pipeline.threshold(opts.binaryThreshold)
+      }
+      grayscale = await pipeline.png().toBuffer()
+    } else {
+      // LUMA PATH: monochrome logo — no colour to exploit.
+      let pipeline = sharp(opts.imageBuffer)
+        .extract(rect)
+        .flatten({ background: '#ffffff' })
+        .grayscale()
+        .normalize()
+        .blur(0.8)
+      if (opts.binaryThreshold !== undefined) {
+        pipeline = pipeline.threshold(opts.binaryThreshold)
+      }
+      grayscale = await pipeline.toBuffer()
+    }
+  }
 
   // Step 1c: polarity check from the RAW grayscale histogram. If the image
   // has more dark pixels than light, the background is dark — invert so the
@@ -232,7 +332,13 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   // A subpath is OUTER (depth 0, 2, 4...) when an even number of OTHER subpaths
   // contain its first vertex. It's a HOLE (depth 1, 3, ...) otherwise.
   // We also map each hole to its immediate parent outer (smallest enclosing).
-  type SubpathInfo = { index: number; isOuter: boolean; parentIndex: number | null; poly: Pt[] }
+  // Each subpath gets:
+  //   - depth: how many other subpaths enclose its first vertex
+  //   - isOuter: depth is even (depth 0 = outermost contour, 2 = nested outer)
+  //   - parentIndex: the immediate enclosing subpath (smallest-area encloser)
+  //     — set for EVERY subpath except depth-0 ones. Used by channels_only
+  //     mode to find direct children of each hole.
+  type SubpathInfo = { index: number; depth: number; isOuter: boolean; parentIndex: number | null; poly: Pt[] }
   const infos: SubpathInfo[] = subpaths.map((sp, i) => {
     const probe = sp[0]
     const enclosers: number[] = []
@@ -242,11 +348,8 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
     }
     const depth = enclosers.length
     const isOuter = depth % 2 === 0
-    // Parent for a hole: the encloser at depth = depth-1 (the smallest enclosing).
-    // Heuristic: pick the encloser whose polygon has the smallest area among
-    // those whose own depth has the correct parity (depth-1).
     let parentIndex: number | null = null
-    if (!isOuter) {
+    if (enclosers.length > 0) {
       let bestArea = Infinity
       for (const j of enclosers) {
         const area = Math.abs(signedArea(subpaths[j]))
@@ -256,16 +359,28 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
         }
       }
     }
-    return { index: i, isOuter, parentIndex, poly: sp }
+    return { index: i, depth, isOuter, parentIndex, poly: sp }
   })
 
-  // Build a map: outer index → its hole polygons
+  // Build a map: outer index → its DIRECT hole polygons (immediate children
+  // that are holes). Used for silhouette mode.
   const holesByOuter = new Map<number, Pt[][]>()
   for (const inf of infos) {
-    if (!inf.isOuter && inf.parentIndex !== null) {
+    if (!inf.isOuter && inf.parentIndex !== null && infos[inf.parentIndex].isOuter) {
       const list = holesByOuter.get(inf.parentIndex) ?? []
       list.push(inf.poly)
       holesByOuter.set(inf.parentIndex, list)
+    }
+  }
+  // Build a map: hole index → direct child outers nested inside it. Used by
+  // channels_only mode to subtract nested strokes from a parent hole so the
+  // resulting carve region is just the channel (white) area.
+  const outersByHole = new Map<number, Pt[][]>()
+  for (const inf of infos) {
+    if (inf.isOuter && inf.parentIndex !== null && !infos[inf.parentIndex].isOuter) {
+      const list = outersByHole.get(inf.parentIndex) ?? []
+      list.push(inf.poly)
+      outersByHole.set(inf.parentIndex, list)
     }
   }
 
@@ -281,14 +396,44 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
     return ccw === wantCCW ? poly : [...poly].reverse()
   }
 
-  // Step 5+6 combined: extrude EACH (outer minus its holes) into its OWN
-  // geom3, collect them, then union in 3D at the very end. This is much more
-  // robust than doing a 2D union of many shapes first — JSCAD's 2D booleans
-  // can silently drop tiny / degenerate / non-overlapping polygons when
-  // unioning a complex set, but 3D union of disjoint solids is well-defined.
+  // Step 5+6: extrude per outer polygon into its own geom3, then union.
+  // Two modes:
+  //   - silhouette (default): each outer MINUS its holes → the ink shape.
+  //   - channels_only: each HOLE on its own → the negative space inside the
+  //     letter outlines. Used by the `channels` treatment to engrave just
+  //     the inner counters while leaving strokes at plate level.
   const extrudedPieces: ReturnType<typeof extrudeLinear>[] = []
   let droppedPieces = 0
-  for (const inf of infos) {
+
+  if (mode === 'channels_only') {
+
+    // Per hole: extrude (hole MINUS any directly-nested outer strokes).
+    // For a letter drawn with parallel strokes (depth 0 outer / 1 hole /
+    // 2 outer / 3 hole nesting), this produces:
+    //   - depth-1 hole − depth-2 outer = the channel between strokes
+    //   - depth-3 hole (no nested outers) = the centre void
+    // Both wind CCW for the subtract operands; JSCAD's 2D boolean treats
+    // them as filled regions.
+    for (const inf of infos) {
+      if (inf.isOuter) continue
+      try {
+        const holePoly = primitives.polygon({ points: ensureWinding(inf.poly, true) })
+        const nestedOuters = outersByHole.get(inf.index) ?? []
+        let shape2D: ReturnType<typeof primitives.polygon> = holePoly
+        if (nestedOuters.length > 0) {
+          const nestedGeoms = nestedOuters.map((p) =>
+            primitives.polygon({ points: ensureWinding(p, true) }),
+          )
+          shape2D = booleans.subtract(holePoly, ...nestedGeoms) as ReturnType<typeof primitives.polygon>
+        }
+        const piece = extrudeLinear({ height: 1 }, shape2D)
+        extrudedPieces.push(piece)
+      } catch (err) {
+        droppedPieces++
+        console.warn(`[logo-extrude] dropped channel piece #${inf.index}: ${(err as Error).message}`)
+      }
+    }
+  } else for (const inf of infos) {
     if (!inf.isOuter) continue
     try {
       const outerPts = ensureWinding(inf.poly, true)
