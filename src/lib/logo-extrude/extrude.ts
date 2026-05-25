@@ -51,8 +51,11 @@ import { computeOtsuThreshold } from './otsu'
 const { primitives, booleans, extrusions, transforms, geometries } = jscad
 const { extrudeLinear } = extrusions
 
-/** HSV saturation (0..255) above which a pixel counts as "coloured ink". */
-const COLOR_INK_SAT = 100
+/** HSV saturation (0..255) above which a pixel counts as "coloured ink".
+ *  Doubles as the binarisation cut for the colour mask. 120 sits above the
+ *  anti-aliased halo around strokes (which would fatten them) and below a
+ *  vivid logo's stroke core, so the traced strokes keep the source width. */
+const COLOR_INK_SAT = 120
 /** Min fraction of coloured-ink pixels for the saturation mask to kick in.
  *  Below this the logo is treated as monochrome (luminance path). */
 const COLOR_INK_FRACTION = 0.01
@@ -127,10 +130,17 @@ export interface LogoExtrudeOptions {
    * with threshold 0.4 drops all → solid blob (bad). Summing gives ~90% →
    * preserves all → correct outline cut. */
   ignoreHolesSmallerThan?: number
+  /** Automatically generate stencil bridges to keep inner islands (like in O, P, A)
+   * from falling out when using through_cut. */
+  addBridges?: boolean
+  /** Pattern texture to apply inside/on the logo surface. */
+  texture?: 'none' | 'honeycomb' | 'stripes' | 'grid'
 }
 
 export interface LogoExtrudeResult {
   stl: Uint8Array
+  logo2DOuter?: any
+  logo2DOuters?: any[]
   meta: {
     subpaths: number
     outers: number
@@ -150,11 +160,14 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   const skipTrim = opts.skipTrim ?? !!opts.cropBox
   const ignoreHoles = opts.ignoreHoles ?? false
   const ignoreHolesSmallerThan = opts.ignoreHolesSmallerThan ?? 0
+  const addBridges = opts.addBridges ?? false
+  const texture = opts.texture ?? 'none'
 
   // Step 1: preprocess
   const meta = await sharp(opts.imageBuffer).metadata()
   const fullWidth = meta.width ?? 0
   const fullHeight = meta.height ?? 0
+  const imgMaxDim = Math.max(fullWidth, fullHeight) || 400
   if (!fullWidth || !fullHeight) {
     throw new Error('Could not read image dimensions')
   }
@@ -234,18 +247,23 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
     }
 
     if (colouredCount / px >= COLOR_INK_FRACTION) {
-      // COLOUR PATH: saturated pixels are ink → negate so ink is dark for
-      // potrace. A light blur smooths JPEG chroma-block noise without
-      // eroding thin strokes.
-      let pipeline = sharp(sat, {
+      // COLOUR PATH: binarise the saturation channel at COLOR_INK_SAT.
+      //
+      // The hard cut is essential — it must NOT be a continuous mask. A
+      // logo's colour is often a gradient, so saturation varies ALONG a
+      // single stroke. Feeding the continuous channel to potrace's
+      // auto-threshold then slices each stroke at a different width, giving
+      // lumpy, uneven line-art. A fixed threshold gives every coloured pixel
+      // equal "ink" weight → uniform stroke width. The cut sits in the gap
+      // between the achromatic background (saturation ≈ 0) and the stroke
+      // core, above the anti-aliased halo. Negate so ink is dark for potrace.
+      grayscale = await sharp(sat, {
         raw: { width: info.width, height: info.height, channels: 1 },
       })
+        .threshold(COLOR_INK_SAT)
         .negate()
-        .blur(0.5)
-      if (opts.binaryThreshold !== undefined) {
-        pipeline = pipeline.threshold(opts.binaryThreshold)
-      }
-      grayscale = await pipeline.png().toBuffer()
+        .png()
+        .toBuffer()
     } else {
       // LUMA PATH: monochrome logo — no colour to exploit.
       let pipeline = sharp(opts.imageBuffer)
@@ -302,7 +320,7 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   if (manualThreshold !== undefined) {
     traceThreshold = manualThreshold
   } else {
-    const rawBytes = await sharp(grayscale).raw().toBuffer()
+    const rawBytes = await sharp(grayscale).grayscale().raw().toBuffer()
     traceThreshold = computeOtsuThreshold(new Uint8Array(rawBytes))
   }
   const svg: string = await new Promise((resolve, reject) => {
@@ -396,13 +414,34 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
     return ccw === wantCCW ? poly : [...poly].reverse()
   }
 
+  // Pre-calculate 2D bounding box and scale factors for textures/keychains
+  let minX2d = Infinity, maxX2d = -Infinity
+  let minY2d = Infinity, maxY2d = -Infinity
+  for (const inf of infos) {
+    if (!inf.isOuter) continue
+    for (const pt of inf.poly) {
+      if (pt[0] < minX2d) minX2d = pt[0]
+      if (pt[0] > maxX2d) maxX2d = pt[0]
+      if (pt[1] < minY2d) minY2d = pt[1]
+      if (pt[1] > maxY2d) maxY2d = pt[1]
+    }
+  }
+  const cx2d = (minX2d + maxX2d) / 2
+  const cy2d = (minY2d + maxY2d) / 2
+  const rawW = maxX2d - minX2d
+  const rawH = maxY2d - minY2d
+  const maxDim2d = Math.max(rawW, rawH) || 1
+  const baseScale2d = targetMaxDim / maxDim2d
+  const scaleFactor = 1 / baseScale2d
+
   // Step 5+6: extrude per outer polygon into its own geom3, then union.
   // Two modes:
   //   - silhouette (default): each outer MINUS its holes → the ink shape.
   //   - channels_only: each HOLE on its own → the negative space inside the
   //     letter outlines. Used by the `channels` treatment to engrave just
   //     the inner counters while leaving strokes at plate level.
-  const extrudedPieces: ReturnType<typeof extrudeLinear>[] = []
+  const shape2Ds: any[] = []
+  const logo2DGeoms: any[] = []
   let droppedPieces = 0
 
   if (mode === 'channels_only') {
@@ -426,8 +465,7 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
           )
           shape2D = booleans.subtract(holePoly, ...nestedGeoms) as ReturnType<typeof primitives.polygon>
         }
-        const piece = extrudeLinear({ height: 1 }, shape2D)
-        extrudedPieces.push(piece)
+        shape2Ds.push(shape2D)
       } catch (err) {
         droppedPieces++
         console.warn(`[logo-extrude] dropped channel piece #${inf.index}: ${(err as Error).message}`)
@@ -460,30 +498,88 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
       }
       let shape2D: ReturnType<typeof primitives.polygon> = outerPoly
       if (holes.length > 0) {
-        const holeGeom2s = holes.map((h) =>
-          primitives.polygon({ points: ensureWinding(h, false) }),
-        )
+        const bridgeGeoms: any[] = []
+        const holeGeom2s = holes.map((h) => {
+          const holePoly = primitives.polygon({ points: ensureWinding(h, true) })
+          if (addBridges) {
+            // Find closest outer boundary vertex to the first vertex of the hole
+            const P = h[0]
+            let closestV = outerPts[0]
+            let minDist = Infinity
+            for (const v of outerPts) {
+              const dx = v[0] - P[0]
+              const dy = v[1] - P[1]
+              const d = dx * dx + dy * dy
+              if (d < minDist) {
+                minDist = d
+                closestV = v
+              }
+            }
+            const dx = closestV[0] - P[0]
+            const dy = closestV[1] - P[1]
+            const len = Math.sqrt(dx * dx + dy * dy) || 1
+            const ux = dx / len
+            const uy = dy / len
+            const vx = -uy
+            const vy = ux
+
+            // Bridge width is ~1.5% of image size, at least 4 pixels.
+            const w = Math.max(4, imgMaxDim * 0.015)
+            const hHalf = w / 2
+            const p1: Pt = [P[0] - ux + vx * hHalf, P[1] - uy + vy * hHalf]
+            const p2: Pt = [P[0] - ux - vx * hHalf, P[1] - uy - vy * hHalf]
+            const p3: Pt = [closestV[0] + ux - vx * hHalf, closestV[1] + uy - vy * hHalf]
+            const p4: Pt = [closestV[0] + ux + vx * hHalf, closestV[1] + uy + vy * hHalf]
+
+            const bridgeGeom = primitives.polygon({
+              points: ensureWinding([p1, p2, p3, p4], true),
+            })
+            bridgeGeoms.push(bridgeGeom)
+          }
+          return holePoly
+        })
         shape2D = booleans.subtract(outerPoly, ...holeGeom2s) as ReturnType<typeof primitives.polygon>
+        if (bridgeGeoms.length > 0) {
+          shape2D = booleans.subtract(shape2D, ...bridgeGeoms) as ReturnType<typeof primitives.polygon>
+        }
       }
-      const piece = extrudeLinear({ height: 1 }, shape2D)
-      extrudedPieces.push(piece)
+      if (texture !== 'none') {
+        const pattern = generateTexturePattern(texture, scaleFactor, cx2d, cy2d, maxDim2d)
+        shape2D = booleans.subtract(shape2D, pattern) as ReturnType<typeof primitives.polygon>
+      }
+      shape2Ds.push(shape2D)
+
+      const scaledShape2D = transforms.scale(
+        [baseScale2d, baseScale2d],
+        transforms.translate([-cx2d, -cy2d], shape2D)
+      )
+      logo2DGeoms.push(scaledShape2D)
     } catch (err) {
       droppedPieces++
       console.warn(`[logo-extrude] dropped piece #${inf.index}: ${(err as Error).message}`)
     }
   }
-  if (extrudedPieces.length === 0) {
+  if (shape2Ds.length === 0) {
     throw new Error('All outer polygons failed to extrude — no geometry produced')
   }
   if (droppedPieces > 0) {
     console.warn(`[logo-extrude] dropped ${droppedPieces}/${infos.filter(i => i.isOuter).length} outer pieces during extrude`)
   }
 
-  // Union in 3D. JSCAD handles disjoint solids cleanly here.
+  // Union all 2D shapes by merging their sides directly (O(1) segment list merge).
+  // This is 100% stable and avoids JSCAD 3D boolean floating point cracks/boundaries.
   const combined3D =
-    extrudedPieces.length === 1
-      ? extrudedPieces[0]
-      : booleans.union(...extrudedPieces)
+    shape2Ds.length === 1
+      ? extrudeLinear({ height: 1 }, shape2Ds[0])
+      : extrudeLinear(
+          { height: 1 },
+          geometries.geom2.create(
+            shape2Ds.reduce((acc, s2d) => {
+              acc.push(...geometries.geom2.toSides(s2d))
+              return acc
+            }, [] as any[]),
+          ),
+        )
 
   // Step 7: rotate +90° around X so the logo stands up RIGHT-SIDE UP.
   //
@@ -548,8 +644,33 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   const finalSizeZ = rawSizeZ * baseScale
 
   const outerCount = infos.filter((i) => i.isOuter).length
+
+  // Build the 2D logo footprint (union of scaled outer contours)
+  const logo2DOuterGeoms: any[] = []
+  if (mode !== 'channels_only') {
+    for (const inf of infos) {
+      if (!inf.isOuter) continue
+      const outerPts = ensureWinding(inf.poly, true)
+      const scaledOuterPts = outerPts.map(([x, y]) => [
+        (x - cx2d) * baseScale2d,
+        (y - cy2d) * baseScale2d
+      ] as Pt)
+      logo2DOuterGeoms.push(primitives.polygon({ points: ensureWinding(scaledOuterPts, true) }))
+    }
+  }
+  const logo2DOuter = logo2DOuterGeoms.length > 0
+    ? (logo2DOuterGeoms.length === 1 ? logo2DOuterGeoms[0] : booleans.union(...logo2DOuterGeoms))
+    : undefined
+
+  const logo2D = logo2DGeoms.length > 0
+    ? (logo2DGeoms.length === 1 ? logo2DGeoms[0] : booleans.union(...logo2DGeoms))
+    : undefined
+
   return {
     stl,
+    logo2DOuter,
+    logo2D,
+    logo2DOuters: logo2DOuterGeoms,
     meta: {
       subpaths: subpaths.length,
       outers: outerCount,
@@ -557,4 +678,85 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
       bboxMm: { x: finalSizeX, y: finalSizeY, z: finalSizeZ },
     },
   }
+}
+
+function generateTexturePattern(
+  texture: 'honeycomb' | 'stripes' | 'grid',
+  scaleFactor: number,
+  cx: number,
+  cy: number,
+  maxDim: number
+): any {
+  const range = maxDim * 0.7
+  const shapes: any[] = []
+
+  if (texture === 'stripes') {
+    const period = 4.0 * scaleFactor
+    const width = 1.0 * scaleFactor
+    for (let x = -range; x <= range; x += period) {
+      shapes.push(primitives.rectangle({
+        center: [x, 0],
+        size: [width, range * 3]
+      }))
+    }
+    if (shapes.length === 0) return primitives.polygon({ points: [] })
+    const unioned = booleans.union(...shapes)
+    const rotated = transforms.rotateZ(Math.PI / 4, unioned)
+    return transforms.translate([cx, cy, 0], rotated)
+  }
+
+  if (texture === 'grid') {
+    const period = 4.0 * scaleFactor
+    const width = 0.8 * scaleFactor
+    // Vertical bars
+    for (let x = -range; x <= range; x += period) {
+      shapes.push(primitives.rectangle({
+        center: [x, 0],
+        size: [width, range * 3]
+      }))
+    }
+    // Horizontal bars
+    for (let y = -range; y <= range; y += period) {
+      shapes.push(primitives.rectangle({
+        center: [0, y],
+        size: [range * 3, width]
+      }))
+    }
+    if (shapes.length === 0) return primitives.polygon({ points: [] })
+    const unioned = booleans.union(...shapes)
+    const rotated = transforms.rotateZ(Math.PI / 4, unioned)
+    return transforms.translate([cx, cy, 0], rotated)
+  }
+
+  if (texture === 'honeycomb') {
+    const r = 2.5 * scaleFactor
+    const hexRadius = r - 0.4 * scaleFactor // 0.8mm wall thickness
+    const sx = r * Math.sqrt(3)
+    const sy = r * 1.5
+
+    const nx = Math.ceil(range / sx) + 1
+    const ny = Math.ceil(range / sy) + 1
+
+    for (let col = -nx; col <= nx; col++) {
+      for (let row = -ny; row <= ny; row++) {
+        const hx = col * sx + (Math.abs(row) % 2 === 0 ? 0 : sx / 2)
+        const hy = row * sy
+
+        const points: [number, number][] = []
+        for (let i = 0; i < 6; i++) {
+          const theta = (i * Math.PI) / 3
+          points.push([
+            hx + hexRadius * Math.cos(theta),
+            hy + hexRadius * Math.sin(theta)
+          ])
+        }
+        shapes.push(primitives.polygon({ points }))
+      }
+    }
+    if (shapes.length === 0) return primitives.polygon({ points: [] })
+    const unioned = booleans.union(...shapes)
+    return transforms.translate([cx, cy, 0], unioned)
+  }
+
+  return primitives.polygon({ points: [] })
 }
