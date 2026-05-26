@@ -79,6 +79,11 @@ export async function generateFromDesign(
     case 'pin':             result = await buildPin(design, ctx); break
     case 'custom_keychain': result = await buildCustomKeychain(design, ctx); break
     case 'mug':             result = await buildMug(design, ctx); break
+    case 'imported':        throw new Error('TODO: implement imported mesh generation (FEAT-008 T13)')
+    default: {
+      const _: never = design
+      throw new Error(`Unhandled design kind: ${_}`)
+    }
   }
 
   // Merge all bodies' positions to generate the fallback single STL

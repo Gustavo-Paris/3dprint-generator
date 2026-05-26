@@ -197,6 +197,71 @@ const Primitive = z.discriminatedUnion('kind', [
 ])
 export type Primitive = z.infer<typeof Primitive>
 
+// ───────────────────────────────────────────────────────────────────
+// Imported-mesh edits (user-uploaded .3mf as base geometry)
+// ───────────────────────────────────────────────────────────────────
+
+const ScaleOp = z.object({
+  op: z.literal('scale'),
+  factor: z.union([
+    z.number().positive(),
+    z.object({ x: z.number().positive(), y: z.number().positive(), z: z.number().positive() }),
+  ]),
+})
+
+const HoleOp = z.object({
+  op: z.literal('hole'),
+  faceId: z.number().int().nonnegative(),
+  shape: z.enum(['circle', 'rect']).default('circle'),
+  diameterMm: z.number().positive().optional(),
+  widthMm: z.number().positive().optional(),
+  heightMm: z.number().positive().optional(),
+  depthMm: z.union([z.number().positive(), z.literal('through')]).default('through'),
+  /** Positions in the face's local 2D coordinate frame (origin = face centroid). */
+  positions: z.array(z.tuple([z.number(), z.number()])).min(1),
+})
+
+const AddLogoOp = z.object({
+  op: z.literal('add_logo'),
+  faceId: z.number().int().nonnegative(),
+  imageUrl: z.string().url(),
+  sizeMm: z.number().positive(),
+  depthMm: z.number().positive().default(0.6),
+  treatment: z.enum(['embossed', 'engraved', 'through_cut']).default('embossed'),
+  /** Optional in-plane offset from face centroid. */
+  offsetMm: z.tuple([z.number(), z.number()]).default([0, 0]),
+})
+
+const EmbossTextOp = z.object({
+  op: z.literal('emboss_text'),
+  faceId: z.number().int().nonnegative(),
+  text: z.string().min(1).max(40),
+  treatment: z.enum(['embossed', 'engraved']).default('embossed'),
+  sizeMm: z.number().positive(),
+  depthMm: z.number().positive().default(0.5),
+  offsetMm: z.tuple([z.number(), z.number()]).default([0, 0]),
+})
+
+const JscadRawOp = z.object({
+  op: z.literal('jscad_raw'),
+  /** JSCAD module source. Must export `main()` returning a Geom3 to UNION with the
+   *  current mesh, or `main(currentMesh)` to receive the current mesh and return
+   *  the replacement. */
+  code: z.string().min(10).max(20_000),
+  mode: z.enum(['union', 'replace']).default('union'),
+})
+
+const Op = z.discriminatedUnion('op', [
+  ScaleOp, HoleOp, AddLogoOp, EmbossTextOp, JscadRawOp,
+])
+export type Op = z.infer<typeof Op>
+
+const Imported = z.object({
+  kind: z.literal('imported'),
+  baseMeshUrl: z.string().url(),
+  edits: z.array(Op).max(20).default([]),
+})
+
 /**
  * Stacks 2-4 primitives along the Z axis. Each part contributes its own
  * grounded geometry; `offsetZ` is the height at which the part's bottom
@@ -226,6 +291,7 @@ export const Design = z.discriminatedUnion('kind', [
   Pin,
   CustomKeychain,
   Mug,
+  Imported,
 ])
 export type Design = z.infer<typeof Design>
 /** Input shape — defaults (extruder, addBridges, texture, …) are optional here.
