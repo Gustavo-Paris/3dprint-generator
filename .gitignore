@@ -63,3 +63,15 @@ test-results/
 playwright-report/
 public/meshes/
 public/uploads/
+
+# debug artifacts (ad-hoc dumps from logo / mesh tracing)
+public/debug-*
+public/test-*.stl
+
+# ad-hoc debug scripts at repo root
+/debug-*.ts
+/test-*.ts
+
+# external tool state
+.antigravitycli/
+.pgdk/
