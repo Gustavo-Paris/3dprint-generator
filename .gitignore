@@ -75,3 +75,6 @@ public/test-*.stl
 # external tool state
 .antigravitycli/
 .pgdk/
+
+# git worktrees (isolated workspaces for parallel implementation)
+.worktrees/
