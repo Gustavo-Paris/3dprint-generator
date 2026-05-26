@@ -249,6 +249,12 @@ export function sanitizeDesign(input: Design): SanitizeResult {
     return { design: out, adjustments }
   }
 
+  if (input.kind === 'imported') {
+    // Edits are validated by Zod at parse time; numeric clamping
+    // doesn't apply (geometry comes from the imported mesh, not LLM-named dims).
+    return { design: input, adjustments: [] }
+  }
+
   // Exhaustiveness
   return { design: input, adjustments }
 }
