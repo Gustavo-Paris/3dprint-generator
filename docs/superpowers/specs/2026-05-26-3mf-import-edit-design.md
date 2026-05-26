@@ -69,7 +69,7 @@ serialize3mf (or STL) → blob → iteration row (same pattern as today)
 |---|---|
 | `load-base-mesh.ts` | Fetch `.3mf` blob, parse via existing `parse3mf`, compute normals + bbox. Preserve per-triangle extruder labels for multi-material round-trip. |
 | `face-segment.ts` | Group adjacent triangles whose normals differ < 5°. Return top-12 semantic faces by area (LLM context budget). Each face: `{ id, normal, centroid, area, bboxOnPlane, triangleIndices[] }`. |
-| `render-preview.ts` | Server-side headless render (top / front / right / iso). Returns 4 PNG buffers. Reuses or extends the JSCAD worker pipeline. |
+| `render-preview.ts` (client-side, in `MeshViewer`) | Captures 4 angle screenshots (top / front / right / iso) from the existing Three.js viewer canvas via `canvas.toDataURL()`. Returns 4 data URLs included in the `/api/generate` request body. Server never renders — sidesteps headless-render dependencies on Vercel. |
 | `face-disambiguate.ts` | When LLM responds "ambiguous", render iso-view with each candidate face painted in a distinct color + large number overlay. Returns single PNG. |
 | `apply-edits.ts` | Iterate over `edits[]`, dispatch each op to its handler. Returns `{ result: Mesh, warnings: string[] }`. |
 | `ops/` directory | Op catalog. Each file exports `{ schema: ZodSchema, apply: (mesh, params, ctx) => mesh }`. |
