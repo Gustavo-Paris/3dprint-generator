@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react'
 import type { InferSelectModel } from 'drizzle-orm'
 import type { projects as projectsTable, iterations as iterationsTable } from '@/db/schema'
 import Chat, { type ChatResult } from './Chat'
-import MeshViewer from './MeshViewer'
+import MeshViewer, { type MeshBody } from './MeshViewer'
 import SliceButton from './SliceButton'
+import DownloadStlButton from './DownloadStlButton'
 import { runInWorker } from '@/lib/jscad/worker-client'
 
 type Project = InferSelectModel<typeof projectsTable>
@@ -43,6 +44,7 @@ export default function ProjectWorkspace({
 
   const [iterationId, setIterationId] = useState<string | null>(lastReady?.id ?? null)
   const [positions, setPositions] = useState<Float32Array | null>(null)
+  const [bodies, setBodies] = useState<MeshBody[] | null>(null)
   const [stl, setStl] = useState<Uint8Array | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,6 +61,7 @@ export default function ProjectWorkspace({
           if (r.ok) {
             setPositions(r.positions)
             setStl(r.stl)
+            setBodies(r.bodies)
           } else setError(r.error)
         } else if (lastReady.strategy === 'generative' && lastReady.meshBlobUrl) {
           const res = await fetch(lastReady.meshBlobUrl)
@@ -69,6 +72,7 @@ export default function ProjectWorkspace({
           if (r.ok) {
             setPositions(r.positions)
             setStl(bytes)
+            setBodies(r.bodies)
           } else setError(r.error)
         }
       } catch (e) {
@@ -90,6 +94,7 @@ export default function ProjectWorkspace({
         if (result.ok) {
           setPositions(result.positions)
           setStl(result.stl)
+          setBodies(result.bodies)
         } else setError(result.error)
       } else {
         let bytes: Uint8Array
@@ -106,6 +111,7 @@ export default function ProjectWorkspace({
         if (result.ok) {
           setPositions(result.positions)
           setStl(bytes)
+          setBodies(result.bodies)
         } else setError(result.error)
       }
     } catch (e) {
@@ -126,14 +132,27 @@ export default function ProjectWorkspace({
       ]
     }
     if (it.strategy === 'generative') {
-      const label = it.baseMode === 'with_base' ? 'Generated via Meshy (with trophy base)' : 'Generated via Meshy'
+      // validationReport now holds the parsed Design JSON (the schema the LLM
+      // emitted). Surfaces in the chat as a collapsible "Design interpretado"
+      // block so the user can see exactly what the LLM picked and iterate.
+      const design = it.validationReport ?? undefined
+      const label = 'Generated'
       return [
         userMsg,
-        { role: 'assistant', text: label, iterationId: it.id, strategy: 'generative' },
+        {
+          role: 'assistant',
+          text: label,
+          iterationId: it.id,
+          strategy: 'generative',
+          design,
+        },
       ]
     }
     return [userMsg]
   })
+
+  const [bodyColor, setBodyColor] = useState('#3b82f6')
+  const [logoColor, setLogoColor] = useState('#f8fafc')
 
   return (
     <main className="h-screen grid grid-cols-[420px_1fr]">
@@ -149,7 +168,42 @@ export default function ProjectWorkspace({
         />
       </aside>
       <section className="relative bg-gray-50" data-testid="viewer-slot">
-        <MeshViewer positions={positions} fitKey={iterationId ?? undefined} />
+        <MeshViewer
+          positions={positions}
+          bodies={bodies}
+          fitKey={iterationId ?? undefined}
+          bodyColor={bodyColor}
+          logoColor={logoColor}
+        />
+        <div className="absolute top-4 left-4 z-10 flex gap-2">
+          <DownloadStlButton iterationId={iterationId} stl={stl} />
+        </div>
+
+        {/* Color configuration panel */}
+        <div className="absolute top-4 right-4 z-10 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-3 shadow-sm flex flex-col gap-2 text-xs text-gray-700">
+          <div className="font-semibold text-gray-900 border-b pb-1">Cores de Impressão</div>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              id="body-color-picker"
+              value={bodyColor}
+              onChange={(e) => setBodyColor(e.target.value)}
+              className="w-6 h-6 rounded border border-gray-300 cursor-pointer"
+            />
+            <label htmlFor="body-color-picker" className="cursor-pointer font-medium">Cor da Base (A)</label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              id="logo-color-picker"
+              value={logoColor}
+              onChange={(e) => setLogoColor(e.target.value)}
+              className="w-6 h-6 rounded border border-gray-300 cursor-pointer"
+            />
+            <label htmlFor="logo-color-picker" className="cursor-pointer font-medium">Cor do Logo (B)</label>
+          </div>
+        </div>
+
         <SliceButton iterationId={iterationId} stl={stl} />
         {error && (
           <div className="absolute bottom-4 left-4 right-4 bg-red-50 text-red-900 border border-red-200 rounded p-3 text-xs">

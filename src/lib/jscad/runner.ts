@@ -3,7 +3,13 @@ import { compileUserModule } from './sandbox'
 import { serializeBinarySTL } from '@/lib/stl/serialize'
 
 export type JscadResult =
-  | { ok: true; positions: Float32Array; triangleCount: number; stl: Uint8Array }
+  | {
+      ok: true
+      positions: Float32Array
+      bodies: { positions: Float32Array; extruder: 'A' | 'B'; label: string }[]
+      triangleCount: number
+      stl: Uint8Array
+    }
   | { ok: false; error: string }
 
 export async function runJscad(code: string): Promise<JscadResult> {
@@ -44,9 +50,15 @@ export async function runJscad(code: string): Promise<JscadResult> {
       }
     }
     const stl = serializeBinarySTL(positions)
+    const floatPositions = new Float32Array(positions)
     return {
       ok: true,
-      positions: new Float32Array(positions),
+      positions: floatPositions,
+      bodies: [{
+        positions: floatPositions,
+        extruder: 'A',
+        label: 'Body',
+      }],
       triangleCount: positions.length / 9,
       stl,
     }

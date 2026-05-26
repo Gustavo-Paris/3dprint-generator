@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { repairAndPrepareMesh } from '@/lib/compose/repair-mesh'
+import {
+  groundMesh,
+  orientWiderEndDown,
+  repairAndPrepareMesh,
+  standCylinderUpright,
+} from '@/lib/compose/repair-mesh'
 import { serializeBinarySTL } from '@/lib/stl/serialize'
 import { parseBinarySTL } from '@/lib/jscad/runner'
 
@@ -106,5 +111,154 @@ describe('repairAndPrepareMesh', () => {
     const empty = serializeBinarySTL([])
     const out = repairAndPrepareMesh(empty)
     expect(out).toBe(empty)
+  })
+
+  it('orientWiderEndDown flips when the top cross-section is wider than the bottom', () => {
+    // Build a Z-up mesh with wide top (+Z) and narrow bottom (-Z).
+    const tris: number[] = []
+    // Wide ring at Z = +10 (top)
+    tris.push(-5, -5,  10,   5, -5,  10,   5,  5,  10)
+    tris.push(-5, -5,  10,   5,  5,  10,  -5,  5,  10)
+    // Narrow ring at Z = -10 (bottom)
+    tris.push(-1, -1, -10,   1, -1, -10,   1,  1, -10)
+    tris.push(-1, -1, -10,   1,  1, -10,  -1,  1, -10)
+    const stl = serializeBinarySTL(tris)
+
+    const flipped = orientWiderEndDown(stl)
+
+    const footprintAtZ = (stlBytes: Uint8Array, atTop: boolean): number => {
+      const ps = parseBinarySTL(stlBytes)
+      let zMin = Infinity, zMax = -Infinity
+      for (let i = 2; i < ps.length; i += 3) {
+        if (ps[i] < zMin) zMin = ps[i]
+        if (ps[i] > zMax) zMax = ps[i]
+      }
+      const thr = atTop ? zMax - (zMax - zMin) * 0.2 : zMin + (zMax - zMin) * 0.2
+      let xMin = Infinity, xMax = -Infinity
+      for (let i = 0; i < ps.length; i += 3) {
+        const z = ps[i + 2]
+        if ((atTop && z >= thr) || (!atTop && z <= thr)) {
+          if (ps[i] < xMin) xMin = ps[i]
+          if (ps[i] > xMax) xMax = ps[i]
+        }
+      }
+      return xMax - xMin
+    }
+
+    // After flip: wide end now at -Z (bottom), narrow at +Z (top).
+    expect(footprintAtZ(flipped, false)).toBeGreaterThan(footprintAtZ(flipped, true))
+  })
+
+  it('standCylinderUpright rotates Y-elongated cylinder to be Z-tall', () => {
+    // Cylinder approximated by two rings; tube axis along Y (longest).
+    const tris: number[] = []
+    for (const y of [-20, 20]) {
+      // 5×5 cross-section at this Y
+      tris.push(-2.5, y, -2.5,  2.5, y, -2.5,  2.5, y,  2.5)
+      tris.push(-2.5, y, -2.5,  2.5, y,  2.5, -2.5, y,  2.5)
+    }
+    const stl = serializeBinarySTL(tris)
+    const out = standCylinderUpright(stl)
+    const ps = parseBinarySTL(out)
+
+    let xMin = Infinity, xMax = -Infinity
+    let yMin = Infinity, yMax = -Infinity
+    let zMin = Infinity, zMax = -Infinity
+    for (let i = 0; i < ps.length; i += 3) {
+      if (ps[i] < xMin) xMin = ps[i]; if (ps[i] > xMax) xMax = ps[i]
+      if (ps[i + 1] < yMin) yMin = ps[i + 1]; if (ps[i + 1] > yMax) yMax = ps[i + 1]
+      if (ps[i + 2] < zMin) zMin = ps[i + 2]; if (ps[i + 2] > zMax) zMax = ps[i + 2]
+    }
+    // After rotation: longest axis (was Y span 40) should now be Z.
+    expect(zMax - zMin).toBeCloseTo(40, 1)
+    expect(xMax - xMin).toBeCloseTo(5, 1)
+    expect(yMax - yMin).toBeCloseTo(5, 1)
+  })
+
+  it('standCylinderUpright rotates X-elongated cylinder to be Z-tall', () => {
+    const tris: number[] = []
+    for (const x of [-20, 20]) {
+      tris.push(x, -2.5, -2.5,  x,  2.5, -2.5,  x,  2.5,  2.5)
+      tris.push(x, -2.5, -2.5,  x,  2.5,  2.5,  x, -2.5,  2.5)
+    }
+    const stl = serializeBinarySTL(tris)
+    const out = standCylinderUpright(stl)
+    const ps = parseBinarySTL(out)
+
+    let xMin = Infinity, xMax = -Infinity
+    let zMin = Infinity, zMax = -Infinity
+    for (let i = 0; i < ps.length; i += 3) {
+      if (ps[i] < xMin) xMin = ps[i]; if (ps[i] > xMax) xMax = ps[i]
+      if (ps[i + 2] < zMin) zMin = ps[i + 2]; if (ps[i + 2] > zMax) zMax = ps[i + 2]
+    }
+    expect(zMax - zMin).toBeCloseTo(40, 1)
+    expect(xMax - xMin).toBeCloseTo(5, 1)
+  })
+
+  it('standCylinderUpright leaves already-upright cylinder unchanged', () => {
+    const tris: number[] = []
+    for (const z of [-20, 20]) {
+      tris.push(-2.5, -2.5, z,  2.5, -2.5, z,  2.5,  2.5, z)
+      tris.push(-2.5, -2.5, z,  2.5,  2.5, z, -2.5,  2.5, z)
+    }
+    const stl = serializeBinarySTL(tris)
+    const out = standCylinderUpright(stl)
+    expect(Buffer.from(out).equals(Buffer.from(stl))).toBe(true)
+  })
+
+  it('standCylinderUpright leaves flat plate unchanged', () => {
+    // Plate: 30 × 50 × 3. min/mid = 3/30 = 0.1 < 0.55 → not cylinder.
+    const tris: number[] = []
+    tris.push(-15, -25, -1.5,  15, -25, -1.5,  15,  25, -1.5)
+    tris.push(-15, -25,  1.5,  15, -25,  1.5,  15,  25,  1.5)
+    const stl = serializeBinarySTL(tris)
+    const out = standCylinderUpright(stl)
+    expect(Buffer.from(out).equals(Buffer.from(stl))).toBe(true)
+  })
+
+  it('dedupes coincident triangles (front + back at same position)', () => {
+    // Two triangles at the same position with opposite windings — Meshy's
+    // classic "double-shell" artifact that causes the white speckles.
+    const stl = serializeBinarySTL([
+      0, 0, 0,   1, 0, 0,   0, 1, 0,  // front-facing
+      0, 0, 0,   0, 1, 0,   1, 0, 0,  // back-facing (reversed)
+    ])
+    const out = repairAndPrepareMesh(stl, {
+      targetMaxDim: 1, mirrorX: false, yUpToZUp: false,
+    })
+    const ps = parseBinarySTL(out)
+    // Only one triangle should remain after dedup.
+    expect(ps.length).toBe(9)
+  })
+
+  it('groundMesh translates Z so the lowest vertex sits at 0', () => {
+    // Tri with Z spanning -5..+10
+    const stl = serializeBinarySTL([0, 0, -5,   1, 0, -5,   0, 1, 10])
+    const out = groundMesh(stl)
+    const ps = parseBinarySTL(out)
+    let zMin = Infinity, zMax = -Infinity
+    for (let i = 2; i < ps.length; i += 3) {
+      if (ps[i] < zMin) zMin = ps[i]
+      if (ps[i] > zMax) zMax = ps[i]
+    }
+    expect(zMin).toBeCloseTo(0, 5)
+    expect(zMax).toBeCloseTo(15, 5)
+  })
+
+  it('groundMesh leaves an already-grounded mesh unchanged', () => {
+    const stl = serializeBinarySTL([0, 0, 0,   1, 0, 0,   0, 1, 10])
+    const out = groundMesh(stl)
+    expect(Buffer.from(out).equals(Buffer.from(stl))).toBe(true)
+  })
+
+  it('orientWiderEndDown leaves a uniformly-wide cylinder unchanged', () => {
+    const tris: number[] = []
+    for (const z of [-5, 5]) {
+      tris.push(-3, -3, z,   3, -3, z,   3,  3, z)
+      tris.push(-3, -3, z,   3,  3, z,  -3,  3, z)
+    }
+    const stl = serializeBinarySTL(tris)
+    const out = orientWiderEndDown(stl)
+    expect(Buffer.from(out).equals(Buffer.from(stl))).toBe(true)
   })
 })

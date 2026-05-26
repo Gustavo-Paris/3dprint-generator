@@ -140,7 +140,9 @@ export interface LogoExtrudeOptions {
 export interface LogoExtrudeResult {
   stl: Uint8Array
   logo2DOuter?: any
+  logo2D?: any
   logo2DOuters?: any[]
+  geom3?: any
   meta: {
     subpaths: number
     outers: number
@@ -666,8 +668,12 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
     ? (logo2DGeoms.length === 1 ? logo2DGeoms[0] : booleans.union(...logo2DGeoms))
     : undefined
 
+  let geom3 = transforms.translate([-cx, -cy, -cz], standing)
+  geom3 = transforms.scale([baseScale, baseScale * targetDepthScale, baseScale], geom3)
+
   return {
     stl,
+    geom3,
     logo2DOuter,
     logo2D,
     logo2DOuters: logo2DOuterGeoms,

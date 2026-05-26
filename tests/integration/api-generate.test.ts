@@ -9,28 +9,19 @@ vi.mock('@/auth', () => ({
   auth: async () => ({ user: { id: testUserId } }),
 }))
 
-vi.mock('@/lib/meshy/client', () => ({
-  generateMesh: vi.fn().mockResolvedValue({
-    ok: true,
-    // 1 dummy triangle (84 header + 50 bytes per tri)
-    stl: (() => {
-      const buf = new ArrayBuffer(84 + 50)
-      const dv = new DataView(buf)
-      dv.setUint32(80, 1, true)
-      const base = 84
-      // normal (0,0,1) + tri (0,0,0)(1,0,0)(0,1,0)
-      dv.setFloat32(base + 8, 1, true)
-      dv.setFloat32(base + 12, 0, true); dv.setFloat32(base + 16, 0, true); dv.setFloat32(base + 20, 0, true)
-      dv.setFloat32(base + 24, 1, true); dv.setFloat32(base + 28, 0, true); dv.setFloat32(base + 32, 0, true)
-      dv.setFloat32(base + 36, 0, true); dv.setFloat32(base + 40, 1, true); dv.setFloat32(base + 44, 0, true)
-      return new Uint8Array(buf)
-    })(),
-    meta: { task_id: 'mock-task', took_ms: 1234 },
+// Mock the LLM parser so the route runs without real API credentials.
+// Return a small flat_plate — the simplest primitive to build.
+vi.mock('@/lib/design/parse', () => ({
+  parseDesign: vi.fn().mockResolvedValue({
+    kind: 'flat_plate',
+    widthMm: 40,
+    heightMm: 40,
+    thicknessMm: 4,
+    cornerRadiusMm: 2,
   }),
-  generateMeshFromImage: vi.fn(),
 }))
 
-describe('/api/generate (single-path Meshy text-to-3D)', () => {
+describe('/api/generate (Design → parametric generator)', () => {
   let projectId: string
 
   beforeAll(async () => {
@@ -38,19 +29,18 @@ describe('/api/generate (single-path Meshy text-to-3D)', () => {
     testUserId = u.id
     const [p] = await db.insert(projects).values({ userId: u.id, title: 't' }).returning()
     projectId = p.id
-    process.env.MESHY_API_KEY = 'test-key'
   })
 
   afterAll(async () => {
     await db.delete(users).where(eq(users.id, testUserId))
   })
 
-  it('text-only message: synthesizer skipped (no image), raw message → Meshy → mesh persisted', async () => {
+  it('text-only message: LLM parser → flat_plate → mesh persisted', async () => {
     const { POST } = await import('@/app/api/generate/route')
     const res = await POST(
       new Request('http://localhost/api/generate', {
         method: 'POST',
-        body: JSON.stringify({ projectId, message: 'a 40mm cube' }),
+        body: JSON.stringify({ projectId, message: 'a 40mm flat square' }),
       }),
     )
     expect(res.status).toBe(200)
@@ -58,8 +48,7 @@ describe('/api/generate (single-path Meshy text-to-3D)', () => {
     expect(body.strategy).toBe('generative')
     expect(body.iteration_id).toBeDefined()
     expect(body.mesh_url).toBeTruthy()
-    expect(body.meta.source).toBe('text')
-    expect(body.meta.synthesized_prompt).toBe('a 40mm cube') // no image → no synth, raw passthrough
+    expect(body.meta.kind).toBe('flat_plate')
 
     const rows = await db.select().from(iterations).where(eq(iterations.projectId, projectId))
     expect(rows).toHaveLength(1)

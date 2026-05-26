@@ -1,13 +1,45 @@
 'use client'
 import { useRef, useState } from 'react'
 
+/** One-line human summary of a Design JSON for the chat header. */
+function designSummary(design: unknown): string {
+  if (!design || typeof design !== 'object') return 'desconhecido'
+  const d = design as Record<string, unknown>
+  const kind = String(d.kind ?? 'desconhecido')
+  const parts: string[] = []
+  if (kind === 'hollow_cylinder') {
+    parts.push(`cilindro vazado ${d.insideDiameterMm}×${d.heightMm}mm`)
+    if (d.handle) parts.push('com alça')
+  } else if (kind === 'flat_plate') {
+    parts.push(`placa ${d.widthMm}×${d.heightMm}×${d.thicknessMm}mm`)
+    if (d.hangingHole) parts.push('com furo')
+    if (d.standAngleDeg) parts.push(`stand ${d.standAngleDeg}°`)
+  } else if (kind === 'disc') {
+    parts.push(`disco ⌀${d.diameterMm}×${d.thicknessMm}mm`)
+    if (d.hangingRing) parts.push('com ring')
+    if (d.hangingHole) parts.push('com furo')
+  } else {
+    parts.push(kind)
+  }
+  const logo = d.logo as Record<string, unknown> | undefined
+  if (logo) {
+    const treatment = String(logo.treatment ?? '')
+    const sizeRatio = Number(logo.sizeRatio ?? 0)
+    parts.push(`logo ${treatment} ${(sizeRatio * 100).toFixed(0)}%`)
+  }
+  return parts.join(' · ')
+}
+
 type Msg = {
   role: 'user' | 'assistant'
   text: string
   iterationId?: string
   strategy?: 'parametric' | 'generative'
   imageUrl?: string
-  synthesizedPrompt?: string
+  /** Parsed Design JSON returned by the LLM (shown collapsible in the chat). */
+  design?: unknown
+  /** Sanity clamps applied to the LLM's output before geometry was built. */
+  designAdjustments?: Array<{ field: string; from: number; to: number }>
 }
 
 export type ChatResult =
@@ -32,6 +64,12 @@ export default function Chat({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
+  /** When set, user is editing this message's design JSON in an inline panel. */
+  const [editingDesign, setEditingDesign] = useState<{
+    sourceMsgIndex: number
+    jsonText: string
+    error: string | null
+  } | null>(null)
   const [attachedImage, setAttachedImage] = useState<{ url: string; file: File | null; carried: boolean } | null>(
     initialAttachedImageUrl
       ? { url: initialAttachedImageUrl, file: null, carried: true }
@@ -58,24 +96,25 @@ export default function Chat({
     }
   }
 
-  async function send() {
-    if ((!draft.trim() && !attachedImage) || busy) return
-    const userText = draft.trim() || (attachedImage ? '(image only)' : '')
-    // Always send the imageUrl when we have one. The backend has a single path:
-    // it describes the image once and synthesizes a prompt from description +
-    // user text. There's no longer a "image-to-3D vs text-to-3D" branch to worry
-    // about — carried image just gets reused (description cached server-side).
+  async function send(opts?: { designOverride?: unknown; messageOverride?: string }) {
+    if (!opts?.designOverride && (!draft.trim() && !attachedImage) || busy) return
+    const userText = opts?.messageOverride ?? (draft.trim() || (attachedImage ? '(image only)' : ''))
     const imgUrl = attachedImage && !attachedImage.carried ? attachedImage.url : undefined
     const displayImage = attachedImage?.url
     setMessages((m) => [...m, { role: 'user', text: userText, imageUrl: displayImage }])
-    setDraft('')
+    if (!opts?.messageOverride) setDraft('')
     setAttachedImage(null)
     setBusy(true)
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ projectId, message: userText, imageUrl: imgUrl }),
+        body: JSON.stringify({
+          projectId,
+          message: userText,
+          imageUrl: imgUrl,
+          designOverride: opts?.designOverride,
+        }),
       })
       if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
       const body = (await res.json()) as {
@@ -83,53 +122,21 @@ export default function Chat({
         iteration_id: string
         mesh_url: string | null
         mesh_base64: string | null
+        design?: unknown
+        design_adjustments?: Array<{ field: string; from: number; to: number }>
         meta: {
-          task_id?: string
-          took_ms?: number
-          source?: 'image+text' | 'text' | 'keychain_compose' | 'coaster_compose' | 'medal_compose' | 'pingente_compose' | 'ima_compose' | 'plaquinha_compose' | 'meshy_with_logo'
-          synthesized_prompt?: string
+          kind?: 'hollow_cylinder' | 'flat_plate' | 'disc'
           bbox_mm?: { x: number; y: number; z: number }
-          meshy_took_ms?: number
-          logo_strategy?: 'flat-x' | 'flat-y' | 'flat-z' | 'tag-side'
         }
       }
-      let label: string
-      if (body.meta.source === 'keychain_compose') {
-        const bb = body.meta.bbox_mm
-        const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
-        label = `Chaveiro com tua logo${dims}`
-      } else if (body.meta.source === 'coaster_compose') {
-        const bb = body.meta.bbox_mm
-        const dims = bb ? ` (⌀${bb.x.toFixed(0)} × ${bb.z.toFixed(0)} mm)` : ''
-        label = `Porta-copo com tua logo${dims}`
-      } else if (body.meta.source === 'medal_compose') {
-        const bb = body.meta.bbox_mm
-        const dims = bb ? ` (⌀${bb.x.toFixed(0)} × ${bb.z.toFixed(0)} mm)` : ''
-        label = `Medalha com tua logo${dims}`
-      } else if (body.meta.source === 'pingente_compose') {
-        const bb = body.meta.bbox_mm
-        const dims = bb ? ` (⌀${bb.x.toFixed(0)} × ${bb.z.toFixed(0)} mm)` : ''
-        label = `Pingente com tua logo${dims}`
-      } else if (body.meta.source === 'ima_compose') {
-        const bb = body.meta.bbox_mm
-        const dims = bb ? ` (⌀${bb.x.toFixed(0)} × ${bb.z.toFixed(0)} mm)` : ''
-        label = `Ímã com tua logo${dims}`
-      } else if (body.meta.source === 'plaquinha_compose') {
-        const bb = body.meta.bbox_mm
-        const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
-        label = `Plaquinha de mesa com tua logo${dims}`
-      } else if (body.meta.source === 'meshy_with_logo') {
-        const bb = body.meta.bbox_mm
-        const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
-        const tookS = ((body.meta.meshy_took_ms ?? 0) / 1000).toFixed(0)
-        const strat = body.meta.logo_strategy
-          ? ` · ${body.meta.logo_strategy === 'tag-side' ? 'tag lateral' : 'gravada'}`
-          : ''
-        label = `Forma via Meshy + tua logo${dims} (Meshy: ${tookS}s${strat})`
-      } else {
-        const tookS = ((body.meta.took_ms ?? 0) / 1000).toFixed(0)
-        label = `Generated via Meshy in ${tookS}s`
+      const bb = body.meta.bbox_mm
+      const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
+      const labelByKind: Record<string, string> = {
+        hollow_cylinder: `Porta-lata / sleeve${dims}`,
+        flat_plate: `Placa / chaveiro${dims}`,
+        disc: `Disco / medalha${dims}`,
       }
+      const label = (body.meta.kind && labelByKind[body.meta.kind]) ?? `Generated${dims}`
       setMessages((m) => [
         ...m,
         {
@@ -137,7 +144,8 @@ export default function Chat({
           text: label,
           iterationId: body.iteration_id,
           strategy: 'generative',
-          synthesizedPrompt: body.meta.synthesized_prompt,
+          design: body.design,
+          designAdjustments: body.design_adjustments,
         },
       ])
       onResult({
@@ -179,14 +187,90 @@ export default function Chat({
                 {m.strategy === 'generative' ? 'meshy' : 'jscad'}
               </span>
             )}
-            {m.role === 'assistant' && m.synthesizedPrompt && (
-              <div className="mt-2 max-w-[90%] border-l-2 border-amber-400 bg-amber-50 px-3 py-2 text-left">
-                <div className="text-[10px] uppercase tracking-wide text-amber-700 font-semibold mb-1">
-                  Prompt enviado ao Meshy
+            {m.role === 'assistant' && m.designAdjustments && m.designAdjustments.length > 0 && (
+              <div className="mt-2 max-w-[90%] border-l-2 border-orange-400 bg-orange-50 px-3 py-2 text-left text-[11px]">
+                <div className="uppercase tracking-wide text-orange-700 font-semibold mb-1">
+                  Ajustes aplicados (LLM saiu da faixa printável)
                 </div>
-                <div className="text-xs text-gray-800 whitespace-pre-wrap">{m.synthesizedPrompt}</div>
-                <div className="mt-1.5 text-[10px] text-gray-500">
-                  Se a saída não te agradar, ajuste sua próxima mensagem pra empurrar contra o que está aqui.
+                <ul className="space-y-0.5 text-gray-800">
+                  {m.designAdjustments.map((a, k) => (
+                    <li key={k} className="font-mono">
+                      <span className="text-gray-500">{a.field}</span>: {a.from} → {a.to}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {m.role === 'assistant' && m.design != null && editingDesign?.sourceMsgIndex !== i && (
+              <details className="mt-2 max-w-[90%] border-l-2 border-blue-400 bg-blue-50 px-3 py-2 text-left">
+                <summary className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold cursor-pointer select-none">
+                  Design interpretado pelo LLM — {designSummary(m.design)}
+                </summary>
+                <pre className="mt-1.5 text-[11px] text-gray-800 whitespace-pre-wrap overflow-x-auto">
+                  {JSON.stringify(m.design, null, 2)}
+                </pre>
+                <div className="mt-1.5 flex items-center justify-between gap-2">
+                  <div className="text-[10px] text-gray-500">
+                    Pra iterar: peça mudanças concretas (&ldquo;logo maior&rdquo;, &ldquo;vazada&rdquo;).
+                  </div>
+                  <button
+                    onClick={() => setEditingDesign({
+                      sourceMsgIndex: i,
+                      jsonText: JSON.stringify(m.design, null, 2),
+                      error: null,
+                    })}
+                    className="text-[10px] uppercase tracking-wide text-blue-700 border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-100 whitespace-nowrap"
+                  >
+                    Editar JSON
+                  </button>
+                </div>
+              </details>
+            )}
+            {m.role === 'assistant' && editingDesign?.sourceMsgIndex === i && (
+              <div className="mt-2 max-w-[90%] border-l-2 border-blue-600 bg-blue-50 px-3 py-2 text-left">
+                <div className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold mb-1.5">
+                  Editar design — pula o LLM, vai direto pro generator
+                </div>
+                <textarea
+                  value={editingDesign.jsonText}
+                  onChange={(e) => setEditingDesign({
+                    ...editingDesign,
+                    jsonText: e.target.value,
+                    error: null,
+                  })}
+                  className="w-full font-mono text-[11px] border border-blue-300 rounded p-2 bg-white text-gray-800"
+                  rows={12}
+                />
+                {editingDesign.error && (
+                  <div className="mt-1 text-[11px] text-red-700">{editingDesign.error}</div>
+                )}
+                <div className="mt-1.5 flex gap-2">
+                  <button
+                    disabled={busy}
+                    onClick={() => {
+                      let parsed: unknown
+                      try {
+                        parsed = JSON.parse(editingDesign.jsonText)
+                      } catch (err) {
+                        setEditingDesign({
+                          ...editingDesign,
+                          error: `JSON inválido: ${(err as Error).message}`,
+                        })
+                        return
+                      }
+                      setEditingDesign(null)
+                      send({ designOverride: parsed, messageOverride: 'edited design directly' })
+                    }}
+                    className="text-[11px] bg-blue-600 text-white rounded px-3 py-1 hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    Aplicar
+                  </button>
+                  <button
+                    onClick={() => setEditingDesign(null)}
+                    className="text-[11px] border border-gray-300 rounded px-3 py-1 hover:bg-gray-100"
+                  >
+                    Cancelar
+                  </button>
                 </div>
               </div>
             )}

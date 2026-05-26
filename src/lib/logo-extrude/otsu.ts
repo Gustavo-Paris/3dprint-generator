@@ -28,7 +28,7 @@ export function computeOtsuThreshold(grayscaleBytes: Uint8Array): number {
   let weightBg = 0
   let sumBg = 0
   let maxVariance = -1
-  let bestThreshold = 128
+  let bestThresholds: number[] = []
 
   for (let t = 0; t < 256; t++) {
     weightBg += histogram[t]
@@ -41,10 +41,14 @@ export function computeOtsuThreshold(grayscaleBytes: Uint8Array): number {
     const meanFg = (sumAll - sumBg) / weightFg
     const between = weightBg * weightFg * (meanBg - meanFg) * (meanBg - meanFg)
 
-    if (between > maxVariance) {
+    if (between > maxVariance + 1e-5) {
       maxVariance = between
-      bestThreshold = t
+      bestThresholds = [t]
+    } else if (Math.abs(between - maxVariance) < 1e-5) {
+      bestThresholds.push(t)
     }
   }
-  return bestThreshold
+
+  if (bestThresholds.length === 0) return 128
+  return bestThresholds[Math.floor(bestThresholds.length / 2)]
 }
