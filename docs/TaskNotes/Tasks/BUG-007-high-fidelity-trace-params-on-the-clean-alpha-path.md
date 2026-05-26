@@ -1,28 +1,26 @@
 ---
-uid: feat-006
+uid: bug-007
 status: done
 priority: high
-scheduled: 2026-05-18
-completed: 2026-05-18
-timeEstimate: 45
+scheduled: 2026-05-20
+completed: 2026-05-20
+timeEstimate: 20
 pomodoros: 0
-projects:
-- '[[sprint.md|Current Sprint]]'
 contexts:
-- phase:8
-- composers
-- universal
+- phase:9
+- logo
+- quality
 tags:
 - task
-- feat
+- bug
 ai:
   parallelParts: 0
-  needsReview: true
-  uncertainty: med
+  needsReview: false
+  uncertainty: low
   hintsInferred: true
 ---
 
-# Universal composer: prompt augment + tag fallback for curved shapes
+# High-fidelity trace params on the clean alpha path
 
 Description here.
 

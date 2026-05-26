@@ -1,17 +1,14 @@
 ---
-uid: feat-006
+uid: feat-016
 status: done
 priority: high
-scheduled: 2026-05-18
-completed: 2026-05-18
-timeEstimate: 45
+scheduled: 2026-05-19
+completed: 2026-05-19
+timeEstimate: 30
 pomodoros: 0
-projects:
-- '[[sprint.md|Current Sprint]]'
 contexts:
-- phase:8
-- composers
-- universal
+- phase:9
+- logo
 tags:
 - task
 - feat
@@ -22,7 +19,7 @@ ai:
   hintsInferred: true
 ---
 
-# Universal composer: prompt augment + tag fallback for curved shapes
+# Add 'channels' treatment — engrave only the inner holes of each letter outline
 
 Description here.
 

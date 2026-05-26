@@ -1,17 +1,14 @@
 ---
-uid: feat-006
+uid: feat-007
 status: done
 priority: high
 scheduled: 2026-05-18
 completed: 2026-05-18
-timeEstimate: 45
+timeEstimate: 10
 pomodoros: 0
-projects:
-- '[[sprint.md|Current Sprint]]'
 contexts:
-- phase:8
-- composers
-- universal
+- phase:9
+- ux
 tags:
 - task
 - feat
@@ -22,7 +19,7 @@ ai:
   hintsInferred: true
 ---
 
-# Universal composer: prompt augment + tag fallback for curved shapes
+# Download STL button in viewer
 
 Description here.
 

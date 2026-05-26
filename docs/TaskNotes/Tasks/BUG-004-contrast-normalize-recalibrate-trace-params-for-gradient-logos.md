@@ -1,28 +1,26 @@
 ---
-uid: feat-006
+uid: bug-004
 status: done
 priority: high
-scheduled: 2026-05-18
-completed: 2026-05-18
-timeEstimate: 45
+scheduled: 2026-05-19
+completed: 2026-05-19
+timeEstimate: 15
 pomodoros: 0
-projects:
-- '[[sprint.md|Current Sprint]]'
 contexts:
-- phase:8
-- composers
-- universal
+- phase:9
+- quality
+- logo
 tags:
 - task
-- feat
+- bug
 ai:
   parallelParts: 0
-  needsReview: true
-  uncertainty: med
+  needsReview: false
+  uncertainty: low
   hintsInferred: true
 ---
 
-# Universal composer: prompt augment + tag fallback for curved shapes
+# Contrast normalize + recalibrate trace params for gradient logos
 
 Description here.
 

@@ -1,17 +1,15 @@
 ---
-uid: feat-006
+uid: feat-014
 status: done
 priority: high
-scheduled: 2026-05-18
-completed: 2026-05-18
-timeEstimate: 45
+scheduled: 2026-05-19
+completed: 2026-05-19
+timeEstimate: 90
 pomodoros: 0
-projects:
-- '[[sprint.md|Current Sprint]]'
 contexts:
-- phase:8
-- composers
-- universal
+- phase:9
+- geometry
+- primitives
 tags:
 - task
 - feat
@@ -22,7 +20,7 @@ ai:
   hintsInferred: true
 ---
 
-# Universal composer: prompt augment + tag fallback for curved shapes
+# Composite primitive (stack 2+ parts for trophies / pedestals)
 
 Description here.
 

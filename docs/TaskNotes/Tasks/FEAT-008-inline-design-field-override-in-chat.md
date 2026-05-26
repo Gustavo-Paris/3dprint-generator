@@ -1,17 +1,15 @@
 ---
-uid: feat-006
+uid: feat-008
 status: done
-priority: high
+priority: normal
 scheduled: 2026-05-18
 completed: 2026-05-18
 timeEstimate: 45
 pomodoros: 0
-projects:
-- '[[sprint.md|Current Sprint]]'
 contexts:
-- phase:8
-- composers
-- universal
+- phase:9
+- ux
+- design
 tags:
 - task
 - feat
@@ -22,7 +20,7 @@ ai:
   hintsInferred: true
 ---
 
-# Universal composer: prompt augment + tag fallback for curved shapes
+# Inline design field override in chat
 
 Description here.
 
