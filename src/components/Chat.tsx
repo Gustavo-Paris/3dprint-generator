@@ -46,11 +46,16 @@ export type ChatResult =
   | { kind: 'parametric'; iterationId: string; code: string }
   | { kind: 'generative'; iterationId: string; meshUrl: string | null; meshBase64: string | null }
 
+export type PreviewBundle = { top: string; front: string; right: string; iso: string }
+
 export default function Chat({
   projectId,
   initial,
   initialAttachedImageUrl,
   onResult,
+  onMeshUploaded,
+  pendingMeshUrl,
+  pendingPreviews,
 }: {
   projectId: string
   initial: Msg[]
@@ -59,6 +64,13 @@ export default function Chat({
    * The user can click the X to clear it before sending. */
   initialAttachedImageUrl?: string | null
   onResult: (r: ChatResult) => void
+  /** Called when the user uploads a .3mf file. ProjectWorkspace will load it into
+   * the viewer and capture previews before the next send. */
+  onMeshUploaded?: (url: string) => void
+  /** Active imported mesh URL (set by ProjectWorkspace after a .3mf upload). */
+  pendingMeshUrl?: string | null
+  /** 4-angle previews captured by the viewer (set by ProjectWorkspace). */
+  pendingPreviews?: PreviewBundle | null
 }) {
   const [messages, setMessages] = useState<Msg[]>(initial)
   const [draft, setDraft] = useState('')
@@ -81,6 +93,7 @@ export default function Chat({
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = '' // reset so same file can be re-selected
+    const isMesh = file.name.toLowerCase().endsWith('.3mf')
     setUploading(true)
     try {
       const form = new FormData()
@@ -88,7 +101,13 @@ export default function Chat({
       const res = await fetch('/api/upload', { method: 'POST', body: form })
       if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`)
       const { url } = (await res.json()) as { url: string }
-      setAttachedImage({ url, file, carried: false })
+      if (isMesh) {
+        // Notify ProjectWorkspace so it can load the mesh in the viewer and
+        // capture previews. Do NOT set attachedImage — the mesh is not an image.
+        onMeshUploaded?.(url)
+      } else {
+        setAttachedImage({ url, file, carried: false })
+      }
     } catch (err) {
       alert(`Upload failed: ${(err as Error).message}`)
     } finally {
@@ -113,6 +132,8 @@ export default function Chat({
           projectId,
           message: userText,
           imageUrl: imgUrl,
+          meshUrl: pendingMeshUrl ?? undefined,
+          previewDataUrls: pendingPreviews ?? undefined,
           designOverride: opts?.designOverride,
         }),
       })
@@ -279,6 +300,17 @@ export default function Chat({
         {busy && <div className="text-gray-400 text-xs">Generating…</div>}
       </div>
 
+      {pendingMeshUrl && (
+        <div className="px-4 pb-2 pt-2 flex items-center gap-2 border-t bg-violet-50">
+          <span className="text-lg">📦</span>
+          <span className="text-xs text-violet-700 flex-1 truncate">
+            {pendingPreviews
+              ? '.3mf carregado — previews prontos, pode enviar uma mensagem'
+              : '.3mf carregado — aguardando previews do viewer…'}
+          </span>
+        </div>
+      )}
+
       {attachedImage && (
         <div
           className={`px-4 pb-2 pt-2 flex items-center gap-2 border-t ${
@@ -315,7 +347,7 @@ export default function Chat({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept=".3mf,image/png,image/jpeg,image/webp"
           className="hidden"
           onChange={onFileChange}
           data-testid="chat-file-input"

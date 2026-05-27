@@ -1,8 +1,12 @@
 'use client'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, GizmoHelper, GizmoViewport } from '@react-three/drei'
-import { useEffect, useMemo, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import * as THREE from 'three'
+
+export interface MeshViewerHandle {
+  capturePreviews: () => Promise<{ top: string; front: string; right: string; iso: string }>
+}
 
 type OrbitControlsLike = { target: THREE.Vector3; update: () => void } | null
 
@@ -82,20 +86,56 @@ export interface MeshBody {
   label: string
 }
 
-export default function MeshViewer({
-  positions,
-  bodies,
-  fitKey,
-  bodyColor = '#3b82f6',
-  logoColor = '#f8fafc',
-}: {
+interface MeshViewerProps {
   positions: Float32Array | null
   bodies?: MeshBody[] | null
   /** Unique key per mesh; when it changes the camera re-frames. */
   fitKey?: string
   bodyColor?: string
   logoColor?: string
-}) {
+}
+
+/**
+ * Inner helper rendered inside <Canvas>. Uses useThree() to access the WebGL
+ * renderer and camera, then exposes capturePreviews() via an imperative handle
+ * so MeshViewer (outside the Canvas) can delegate to it.
+ */
+const CaptureHelper = forwardRef<MeshViewerHandle>(function CaptureHelper(_props, ref) {
+  const { gl, camera, scene } = useThree()
+
+  useImperativeHandle(ref, () => ({
+    capturePreviews: async () => {
+      // Determine a sensible orbit radius from the current camera position.
+      const d = camera.position.length() || 100
+
+      const captureAt = (pos: [number, number, number]): string => {
+        camera.position.set(pos[0], pos[1], pos[2])
+        camera.lookAt(0, 0, 0)
+        camera.updateMatrixWorld()
+        gl.render(scene, camera)
+        return gl.domElement.toDataURL('image/png')
+      }
+
+      return {
+        iso:   captureAt([d,    -d,    d]),
+        top:   captureAt([0,     0,    d * 1.5]),
+        front: captureAt([0,    -d * 1.5, 0]),
+        right: captureAt([d * 1.5, 0,  0]),
+      }
+    },
+  }), [gl, camera, scene])
+
+  return null
+})
+CaptureHelper.displayName = 'CaptureHelper'
+
+const MeshViewerInner = forwardRef<MeshViewerHandle, MeshViewerProps>(function MeshViewerInner({
+  positions,
+  bodies,
+  fitKey,
+  bodyColor = '#3b82f6',
+  logoColor = '#f8fafc',
+}, ref) {
   const parsedBodies = useMemo(() => {
     if (bodies && bodies.length > 0) return bodies
     if (positions) {
@@ -152,6 +192,10 @@ export default function MeshViewer({
       <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
         <GizmoViewport labelColor="white" axisHeadScale={1} />
       </GizmoHelper>
+      <CaptureHelper ref={ref} />
     </Canvas>
   )
-}
+})
+MeshViewerInner.displayName = 'MeshViewer'
+
+export default MeshViewerInner

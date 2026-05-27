@@ -1,9 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { InferSelectModel } from 'drizzle-orm'
 import type { projects as projectsTable, iterations as iterationsTable } from '@/db/schema'
-import Chat, { type ChatResult } from './Chat'
-import MeshViewer, { type MeshBody } from './MeshViewer'
+import Chat, { type ChatResult, type PreviewBundle } from './Chat'
+import MeshViewer, { type MeshBody, type MeshViewerHandle } from './MeshViewer'
 import SliceButton from './SliceButton'
 import DownloadStlButton from './DownloadStlButton'
 import { runInWorker } from '@/lib/jscad/worker-client'
@@ -48,6 +48,11 @@ export default function ProjectWorkspace({
   const [stl, setStl] = useState<Uint8Array | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // 3MF import flow: track the pending mesh URL + captured previews.
+  const meshViewerRef = useRef<MeshViewerHandle>(null)
+  const [pendingMeshUrl, setPendingMeshUrl] = useState<string | null>(null)
+  const [pendingPreviews, setPendingPreviews] = useState<PreviewBundle | null>(null)
+
   // Hydrate viewer from last ready iteration on mount.
   useEffect(() => {
     if (!lastReady) return
@@ -85,9 +90,58 @@ export default function ProjectWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastReady?.id])
 
+  // When a .3mf is uploaded and loaded into the viewer, capture 4-angle previews.
+  // The 500ms delay lets R3F render at least one frame with the new mesh before
+  // we call toDataURL on the canvas.
+  useEffect(() => {
+    if (!pendingMeshUrl || pendingPreviews) return
+    const t = setTimeout(async () => {
+      if (!meshViewerRef.current) return
+      try {
+        const previews = await meshViewerRef.current.capturePreviews()
+        setPendingPreviews(previews)
+      } catch (e) {
+        console.error('[ProjectWorkspace] preview capture failed', e)
+      }
+    }, 500)
+    return () => clearTimeout(t)
+  }, [pendingMeshUrl, pendingPreviews])
+
+  /**
+   * Called by Chat when a .3mf file is successfully uploaded.
+   * Loads the mesh into the viewer so CaptureHelper can render it and
+   * the useEffect above will capture 4-angle previews automatically.
+   */
+  async function onMeshUploaded(meshUrl: string) {
+    setPendingMeshUrl(meshUrl)
+    setPendingPreviews(null)
+    setError(null)
+    try {
+      const res = await fetch(meshUrl)
+      if (!res.ok) throw new Error(`Mesh fetch ${res.status}`)
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      const result = await runInWorker({ type: 'stl', stl: bytes })
+      if (result.ok) {
+        setPositions(result.positions)
+        setStl(bytes)
+        setBodies(result.bodies)
+      } else {
+        setError(result.error)
+      }
+    } catch (e) {
+      setError(String(e))
+    }
+  }
+
   async function onResult(r: ChatResult) {
     setIterationId(r.iterationId)
     setError(null)
+    // After the first successful generate with a pending mesh, clear the pending
+    // state — the server has now cached the faces and previews in the iteration.
+    if (pendingMeshUrl) {
+      setPendingMeshUrl(null)
+      setPendingPreviews(null)
+    }
     try {
       if (r.kind === 'parametric') {
         const result = await runInWorker({ type: 'jscad', code: r.code })
@@ -165,10 +219,14 @@ export default function ProjectWorkspace({
           initial={initialMessages}
           initialAttachedImageUrl={lastImageUrl}
           onResult={onResult}
+          onMeshUploaded={onMeshUploaded}
+          pendingMeshUrl={pendingMeshUrl}
+          pendingPreviews={pendingPreviews}
         />
       </aside>
       <section className="relative bg-gray-50" data-testid="viewer-slot">
         <MeshViewer
+          ref={meshViewerRef}
           positions={positions}
           bodies={bodies}
           fitKey={iterationId ?? undefined}
