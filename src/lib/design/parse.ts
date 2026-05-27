@@ -171,11 +171,12 @@ A discriminated union on 'kind'. Pick ONE of:
 
 { "kind": "composite",
   "parts": [
-    { "primitive": <one of hollow_cylinder | flat_plate | disc | custom_keychain>,
+    { "primitive": { /* FULL primitive object — pick a kind above (hollow_cylinder, flat_plate, disc, or custom_keychain) and include ALL its fields, e.g. {"kind":"disc","diameterMm":80,"thicknessMm":15} */ },
       "offsetZ": <number, where this part's bottom sits in mm>,
       "extruder": "A" | "B" (default "A") },
     ... (2 to 4 parts total)
   ] }
+NOTE: parts[i].primitive is an OBJECT (with its own "kind" and dims), NOT a string.
 
 { "kind": "bookmark",
   "widthMm": <number, default 25>, "heightMm": <number, default 140>,
@@ -250,5 +251,11 @@ User: "chaveiro com a logo em baixo relevo com textura colmeia"
 
 User: "porta-lata pra Monster 473ml com a logo"
 → {"kind":"hollow_cylinder","insideDiameterMm":60,"heightMm":100,"wallMm":3,"baseMm":3,"logo":{"treatment":"through_cut","position":"front_face","sizeRatio":0.5}}
+
+User: "troféu com base redonda e placa em pé com a logo"
+→ {"kind":"composite","parts":[
+  {"primitive":{"kind":"disc","diameterMm":80,"thicknessMm":15},"offsetZ":0,"extruder":"A"},
+  {"primitive":{"kind":"flat_plate","widthMm":70,"heightMm":90,"thicknessMm":5,"cornerRadiusMm":3,"orientation":"vertical","logo":{"treatment":"engraved","position":"top_face","sizeRatio":0.7}},"offsetZ":15,"extruder":"A"}
+]}
 
 Output ONLY the JSON object. No markdown, no prose, no code fences.`
