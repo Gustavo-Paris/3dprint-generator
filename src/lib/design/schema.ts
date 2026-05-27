@@ -224,7 +224,8 @@ const HoleOp = z.object({
 const AddLogoOp = z.object({
   op: z.literal('add_logo'),
   faceId: z.number().int().nonnegative(),
-  imageUrl: z.string().url(),
+  // Absolute URL (blob) or relative path (`/uploads/...` in local dev).
+  imageUrl: z.string().min(1),
   sizeMm: z.number().positive(),
   depthMm: z.number().positive().default(0.6),
   treatment: z.enum(['embossed', 'engraved', 'through_cut']).default('embossed'),
@@ -258,7 +259,8 @@ export type Op = z.infer<typeof Op>
 
 const Imported = z.object({
   kind: z.literal('imported'),
-  baseMeshUrl: z.string().url(),
+  // Absolute URL (blob) or relative path (`/uploads/...` in local dev).
+  baseMeshUrl: z.string().min(1),
   edits: z.array(Op).max(20).default([]),
 })
 

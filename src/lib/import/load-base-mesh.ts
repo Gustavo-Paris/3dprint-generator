@@ -1,12 +1,24 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { parse3mf } from '@/lib/3mf/parse-3mf'
 import type { BaseMesh } from './types'
 
 const MAX_BYTES = 50 * 1024 * 1024
 
+/** Load a .3mf from an absolute URL (http/https) or a project-local path
+ *  (e.g. `/uploads/abc.3mf` served from `public/uploads/` in dev). */
 export async function loadBaseMeshFromUrl(url: string): Promise<BaseMesh> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`fetch ${url} failed: ${res.status}`)
-  const buf = new Uint8Array(await res.arrayBuffer())
+  let buf: Uint8Array
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`fetch ${url} failed: ${res.status}`)
+    buf = new Uint8Array(await res.arrayBuffer())
+  } else {
+    // Local path served by Next from `public/`. Strip the leading `/` and
+    // resolve relative to cwd's `public/` directory.
+    const rel = url.startsWith('/') ? url.slice(1) : url
+    buf = new Uint8Array(await readFile(join(process.cwd(), 'public', rel)))
+  }
   if (buf.byteLength > MAX_BYTES) {
     throw new Error(`3MF exceeds ${MAX_BYTES / 1024 / 1024}MB limit`)
   }

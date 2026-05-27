@@ -36,8 +36,8 @@ const Body = z.object({
   projectId: z.string().uuid(),
   message: z.string().min(1).max(2000),
   imageUrl: z.string().optional(),
-  /** Fresh .3mf upload URL — triggers the imported-mesh edit branch. */
-  meshUrl: z.string().url().optional(),
+  /** Fresh .3mf upload URL or relative path — triggers the imported-mesh edit branch. */
+  meshUrl: z.string().min(1).optional(),
   /** Client-captured 4-angle PNG previews (data URLs) for the first import request. */
   previewDataUrls: z.object({
     top: z.string(),

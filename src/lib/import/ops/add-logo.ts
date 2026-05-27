@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Op } from '@/lib/design/schema'
 import type { BaseMesh, SemanticFace } from '../types'
 import { baseMeshToGeom3, geom3ToBaseMesh } from './_shared'
@@ -14,10 +16,17 @@ export async function applyAddLogo(
   const face = faces[op.faceId]
   if (!face) throw new Error(`face ${op.faceId} out of range (have ${faces.length})`)
 
-  // Fetch the logo image.
-  const res = await fetch(op.imageUrl)
-  if (!res.ok) throw new Error(`logo fetch failed: ${res.status}`)
-  const imgBuffer = Buffer.from(await res.arrayBuffer())
+  // Fetch the logo image. Accepts absolute URL (blob) or local path
+  // (`/uploads/...` resolved against the Next `public/` dir in dev).
+  let imgBuffer: Buffer
+  if (op.imageUrl.startsWith('http://') || op.imageUrl.startsWith('https://')) {
+    const res = await fetch(op.imageUrl)
+    if (!res.ok) throw new Error(`logo fetch failed: ${res.status}`)
+    imgBuffer = Buffer.from(await res.arrayBuffer())
+  } else {
+    const rel = op.imageUrl.startsWith('/') ? op.imageUrl.slice(1) : op.imageUrl
+    imgBuffer = await readFile(join(process.cwd(), 'public', rel))
+  }
 
   // Extrude the logo using the existing pipeline.
   // extrudeLogo returns a geom3 in "standing" orientation:
