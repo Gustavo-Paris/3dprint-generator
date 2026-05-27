@@ -20,6 +20,8 @@ import { generateFromDesign, readImageAspectRatio } from '@/lib/design/generate'
 import { sanitizeDesign } from '@/lib/design/sanitize'
 import { tryQuickModify } from '@/lib/design/quick-modifier'
 import { Design } from '@/lib/design/schema'
+import type { PreviewBundle } from '@/lib/design/parse-import'
+import type { SemanticFace } from '@/lib/import/types'
 import { put } from '@vercel/blob'
 import { serialize3mf } from '@/lib/3mf/serialize-3mf'
 import { and, asc, eq } from 'drizzle-orm'
@@ -34,6 +36,15 @@ const Body = z.object({
   projectId: z.string().uuid(),
   message: z.string().min(1).max(2000),
   imageUrl: z.string().optional(),
+  /** Fresh .3mf upload URL — triggers the imported-mesh edit branch. */
+  meshUrl: z.string().url().optional(),
+  /** Client-captured 4-angle PNG previews (data URLs) for the first import request. */
+  previewDataUrls: z.object({
+    top: z.string(),
+    front: z.string(),
+    right: z.string(),
+    iso: z.string(),
+  }).optional(),
   /** Bypass the LLM parser. The generator builds straight from this Design
    * (still sanity-clamped). Useful for direct numeric overrides
    * ("sizeRatio EXACTLY 0.85") that natural-language iteration handles
@@ -47,7 +58,7 @@ export async function POST(req: Request) {
 
   const parsed = Body.safeParse(await req.json())
   if (!parsed.success) return new Response('Invalid body', { status: 400 })
-  const { projectId, message, imageUrl, designOverride } = parsed.data
+  const { projectId, message, imageUrl, meshUrl: freshMeshUrl, previewDataUrls: freshPreviews, designOverride } = parsed.data
 
   const [project] = await db
     .select()
@@ -127,6 +138,50 @@ export async function POST(req: Request) {
     }
   }
 
+  // ── Base-mesh resolution (imported-mesh flow) ──────────────────────────────
+  // Fresh upload wins; else look back in history for a cached imported design.
+  let effectiveMeshUrl: string | null = freshMeshUrl ?? null
+  let cachedFaces: SemanticFace[] | null = null
+  let cachedPreviews: PreviewBundle | null = null
+
+  if (!effectiveMeshUrl) {
+    const lastWithMesh = [...history].reverse().find((h) => {
+      const vr = h.validationReport as { kind?: string; baseMeshUrl?: string } | null
+      return vr?.kind === 'imported' && vr.baseMeshUrl
+    })
+    if (lastWithMesh) {
+      const vr = lastWithMesh.validationReport as { baseMeshUrl?: string; _faces?: unknown; _previews?: unknown } | null
+      effectiveMeshUrl = vr?.baseMeshUrl ?? null
+      cachedFaces = (vr?._faces ?? null) as SemanticFace[] | null
+      cachedPreviews = (vr?._previews ?? null) as PreviewBundle | null
+    }
+  }
+
+  let importContext: Parameters<typeof parseDesign>[0]['importContext'] | undefined
+  if (effectiveMeshUrl) {
+    const { loadBaseMeshFromUrl } = await import('@/lib/import/load-base-mesh')
+    const { segmentFaces } = await import('@/lib/import/face-segment')
+
+    const base = await loadBaseMeshFromUrl(effectiveMeshUrl)
+    const faces = cachedFaces ?? segmentFaces(base)
+    const previews = cachedPreviews ?? freshPreviews
+    if (!previews) {
+      await db.update(iterations)
+        .set({ status: 'failed', error: 'previewDataUrls required for imported mesh' })
+        .where(eq(iterations.id, iteration.id))
+      return Response.json({
+        error: 'Imported edit requires previewDataUrls (client must capture and send them with the first request)',
+        iteration_id: iteration.id,
+      }, { status: 400 })
+    }
+    importContext = {
+      baseMeshUrl: effectiveMeshUrl,
+      faces,
+      previewDataUrls: previews,
+      bboxMm: base.bbox.size as [number, number, number],
+    }
+  }
+
   // LLM → structured Design. Pull the most recent successfully-built Design
   // from this project's history (stored in `validationReport` jsonb) so the
   // LLM can iterate on it instead of re-parsing from scratch.
@@ -150,7 +205,8 @@ export async function POST(req: Request) {
       // Try deterministic pattern matching first — catches "logo maior",
       // "tira a alça", "buraco do lado", etc. without burning LLM tokens
       // or risking Haiku ignoring the modification.
-      const quick = tryQuickModify(message, previousDesign)
+      // Skip quick-modifier for imported flow — it doesn't understand the op schema.
+      const quick = importContext ? null : tryQuickModify(message, previousDesign)
       if (quick) {
         candidate = quick
         designSource = 'quick_modifier'
@@ -161,6 +217,7 @@ export async function POST(req: Request) {
           imageDescription: effectiveDescription,
           imageAspectRatio,
           previousDesign,
+          importContext,
         })
       }
     }
@@ -199,12 +256,19 @@ export async function POST(req: Request) {
   const finalMeshBytes = result.bodies.length > 1 ? serialize3mf(result.bodies) : result.stl
 
   const meshUrl = await persistMesh(finalMeshBytes, session.user.id, projectId, iteration.id)
+
+  // For imported designs, cache faces + previews so subsequent iterations
+  // don't re-segment the mesh or require the client to re-send previews.
+  const validationReport: Record<string, unknown> =
+    design.kind === 'imported' && importContext
+      ? { ...(design as object), _faces: importContext.faces, _previews: importContext.previewDataUrls }
+      : (design as unknown as Record<string, unknown>)
+
   await db.update(iterations)
     .set({
       status: 'ready',
       meshBlobUrl: meshUrl,
-      // Persist the parsed Design so the next iteration can build on it.
-      validationReport: design as unknown as Record<string, unknown>,
+      validationReport,
     })
     .where(eq(iterations.id, iteration.id))
   await db.update(projects)

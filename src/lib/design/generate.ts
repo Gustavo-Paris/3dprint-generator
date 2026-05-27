@@ -58,6 +58,8 @@ export interface GenerateResult {
 }
 
 interface InternalBuildResult {
+  /** Pre-computed STL (optional — imported branch sets this directly). */
+  stl?: Uint8Array
   bodies: MeshBody[]
   meta: {
     kind: Design['kind']
@@ -79,7 +81,39 @@ export async function generateFromDesign(
     case 'pin':             result = await buildPin(design, ctx); break
     case 'custom_keychain': result = await buildCustomKeychain(design, ctx); break
     case 'mug':             result = await buildMug(design, ctx); break
-    case 'imported':        throw new Error('TODO: implement imported mesh generation (FEAT-008 T13)')
+    case 'imported': {
+      const { loadBaseMeshFromUrl } = await import('@/lib/import/load-base-mesh')
+      const { segmentFaces } = await import('@/lib/import/face-segment')
+      const { applyEdits } = await import('@/lib/import/apply-edits')
+
+      const base = await loadBaseMeshFromUrl(design.baseMeshUrl)
+      const faces = segmentFaces(base)
+      const { mesh, warnings } = await applyEdits(base, design.edits, faces)
+
+      if (warnings.length > 0) {
+        console.warn('[generate:imported] warnings:', warnings)
+      }
+
+      const distinctExtruders = Array.from(new Set(mesh.extruders))
+      const bodies: MeshBody[] = distinctExtruders.length > 1
+        ? distinctExtruders.map((ex) => ({
+            positions: filterByExtruder(mesh, ex),
+            extruder: ex,
+            label: `Extruder ${ex}`,
+          }))
+        : [{ positions: mesh.positions, extruder: 'A' as const, label: 'Body' }]
+
+      const stl = serializeBinarySTL(Array.from(mesh.positions))
+      result = {
+        stl,
+        bodies,
+        meta: {
+          kind: 'imported',
+          bboxMm: { x: mesh.bbox.size[0], y: mesh.bbox.size[1], z: mesh.bbox.size[2] },
+        },
+      }
+      break
+    }
     default: {
       const _: never = design
       throw new Error(`Unhandled design kind: ${_}`)
@@ -87,20 +121,45 @@ export async function generateFromDesign(
   }
 
   // Merge all bodies' positions to generate the fallback single STL
-  const totalLength = result.bodies.reduce((sum, b) => sum + b.positions.length, 0)
-  const mergedPositions = new Float32Array(totalLength)
-  let offset = 0
-  for (const body of result.bodies) {
-    mergedPositions.set(body.positions, offset)
-    offset += body.positions.length
+  // (imported branch pre-computes stl; reuse it to avoid double serialization)
+  let stl: Uint8Array
+  if (result.stl) {
+    stl = result.stl
+  } else {
+    const totalLength = result.bodies.reduce((sum, b) => sum + b.positions.length, 0)
+    const mergedPositions = new Float32Array(totalLength)
+    let offset = 0
+    for (const body of result.bodies) {
+      mergedPositions.set(body.positions, offset)
+      offset += body.positions.length
+    }
+    stl = serializeBinarySTL(Array.from(mergedPositions))
   }
-  const stl = serializeBinarySTL(Array.from(mergedPositions))
 
   return {
     stl,
     bodies: result.bodies,
     meta: result.meta,
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers for imported-mesh branch
+// ─────────────────────────────────────────────────────────────────────────────
+
+function filterByExtruder(
+  mesh: { positions: Float32Array; extruders: Array<'A' | 'B'> },
+  ex: 'A' | 'B',
+): Float32Array {
+  const triCount = mesh.positions.length / 9
+  const out: number[] = []
+  for (let i = 0; i < triCount; i++) {
+    if (mesh.extruders[i] === ex) {
+      const o = i * 9
+      for (let j = 0; j < 9; j++) out.push(mesh.positions[o + j])
+    }
+  }
+  return new Float32Array(out)
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -9,6 +9,8 @@
 import { generateText } from 'ai'
 import { getClassifierModel } from '@/lib/llm/model'
 import { Design } from './schema'
+import { parseImportEdit, type PreviewBundle } from './parse-import'
+import type { SemanticFace } from '@/lib/import/types'
 
 export async function parseDesign(input: {
   /** Full chat history including the current user message at the end. */
@@ -24,7 +26,29 @@ export async function parseDesign(input: {
    * returns a modified version, not a fresh design parsed in isolation.
    */
   previousDesign?: Design | null
+  /**
+   * When the user uploaded a .3mf, the route loads base mesh metadata and
+   * passes it here so we dispatch to the imported-edit prompt.
+   */
+  importContext?: {
+    baseMeshUrl: string
+    faces: SemanticFace[]
+    previewDataUrls: PreviewBundle
+    bboxMm: [number, number, number]
+  }
 }): Promise<Design> {
+  // Dispatch to the vision LLM when this is an imported-mesh edit session.
+  if (input.importContext) {
+    return parseImportEdit({
+      messages: input.messages,
+      baseMeshUrl: input.importContext.baseMeshUrl,
+      faces: input.importContext.faces,
+      previewDataUrls: input.importContext.previewDataUrls,
+      previousDesign: input.previousDesign ?? null,
+      bboxMm: input.importContext.bboxMm,
+    })
+  }
+
   const { messages, imageDescription, imageAspectRatio, previousDesign } = input
   const last = messages[messages.length - 1] ?? ''
   const earlier = messages.slice(0, -1)
