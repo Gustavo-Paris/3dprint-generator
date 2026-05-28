@@ -40,9 +40,18 @@ export function recomputeMeshDerived(
   }
 }
 
+/** Resolve @jscad/modeling regardless of CJS-vs-ESM default-export shape.
+ *  Mirrors the workaround in src/lib/design/generate.ts. */
+async function loadJscad() {
+  const ns = (await import('@jscad/modeling')) as unknown as {
+    default?: typeof import('@jscad/modeling')
+  } & typeof import('@jscad/modeling')
+  return ns.default ?? ns
+}
+
 /** Convert a BaseMesh into a JSCAD Geom3 (for boolean ops). */
 export async function baseMeshToGeom3(mesh: BaseMesh) {
-  const { geometries } = await import('@jscad/modeling')
+  const { geometries } = await loadJscad()
   const polygons = []
   for (let i = 0; i < mesh.triangleCount; i++) {
     const o = i * 9
@@ -62,7 +71,7 @@ export async function geom3ToBaseMesh(
   geom: unknown,
   defaultExtruder: 'A' | 'B' = 'A',
 ): Promise<BaseMesh> {
-  const { geometries } = await import('@jscad/modeling')
+  const { geometries } = await loadJscad()
   const polys = geometries.geom3.toPolygons(geom as Parameters<typeof geometries.geom3.toPolygons>[0])
   const positions: number[] = []
   for (const p of polys) {
