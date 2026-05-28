@@ -159,26 +159,38 @@ export async function POST(req: Request) {
 
   let importContext: Parameters<typeof parseDesign>[0]['importContext'] | undefined
   if (effectiveMeshUrl) {
-    const { loadBaseMeshFromUrl } = await import('@/lib/import/load-base-mesh')
-    const { segmentFaces } = await import('@/lib/import/face-segment')
+    try {
+      const { loadBaseMeshFromUrl } = await import('@/lib/import/load-base-mesh')
+      const { segmentFaces } = await import('@/lib/import/face-segment')
 
-    const base = await loadBaseMeshFromUrl(effectiveMeshUrl)
-    const faces = cachedFaces ?? segmentFaces(base)
-    const previews = cachedPreviews ?? freshPreviews
-    if (!previews) {
+      const base = await loadBaseMeshFromUrl(effectiveMeshUrl)
+      const faces = cachedFaces ?? segmentFaces(base)
+      const previews = cachedPreviews ?? freshPreviews
+      if (!previews) {
+        await db.update(iterations)
+          .set({ status: 'failed', error: 'previewDataUrls required for imported mesh' })
+          .where(eq(iterations.id, iteration.id))
+        return Response.json({
+          error: 'Imported edit requires previewDataUrls (client must capture and send them with the first request)',
+          iteration_id: iteration.id,
+        }, { status: 400 })
+      }
+      importContext = {
+        baseMeshUrl: effectiveMeshUrl,
+        faces,
+        previewDataUrls: previews,
+        bboxMm: base.bbox.size as [number, number, number],
+      }
+    } catch (err) {
+      const e = err as Error
+      console.error('[generate] base mesh load/segment failed:', e.stack ?? e.message)
       await db.update(iterations)
-        .set({ status: 'failed', error: 'previewDataUrls required for imported mesh' })
+        .set({ status: 'failed', error: `base mesh load failed: ${e.message}` })
         .where(eq(iterations.id, iteration.id))
       return Response.json({
-        error: 'Imported edit requires previewDataUrls (client must capture and send them with the first request)',
+        error: `Failed to load base mesh: ${e.message}`,
         iteration_id: iteration.id,
-      }, { status: 400 })
-    }
-    importContext = {
-      baseMeshUrl: effectiveMeshUrl,
-      faces,
-      previewDataUrls: previews,
-      bboxMm: base.bbox.size as [number, number, number],
+      }, { status: 500 })
     }
   }
 
