@@ -100,6 +100,11 @@ interface MeshViewerProps {
  * renderer and camera, then exposes capturePreviews() via an imperative handle
  * so MeshViewer (outside the Canvas) can delegate to it.
  */
+/** Target preview size (px) — small enough to stay well under the LLM's
+ *  context-window image budget. 4 previews × 512² ≈ a few thousand vision
+ *  tokens. Going larger (e.g. 1920²) blows past the 1M-token limit. */
+const PREVIEW_SIZE = 512
+
 const CaptureHelper = forwardRef<MeshViewerHandle>(function CaptureHelper(_props, ref) {
   const { gl, camera, scene } = useThree()
 
@@ -108,12 +113,22 @@ const CaptureHelper = forwardRef<MeshViewerHandle>(function CaptureHelper(_props
       // Determine a sensible orbit radius from the current camera position.
       const d = camera.position.length() || 100
 
+      // Reusable downscale canvas — captures the renderer's full-res canvas
+      // and draws it scaled into a fixed 512×512 PNG.
+      const downscale = document.createElement('canvas')
+      downscale.width = PREVIEW_SIZE
+      downscale.height = PREVIEW_SIZE
+      const dctx = downscale.getContext('2d')
+      if (!dctx) throw new Error('2d context unavailable for preview downscale')
+
       const captureAt = (pos: [number, number, number]): string => {
         camera.position.set(pos[0], pos[1], pos[2])
         camera.lookAt(0, 0, 0)
         camera.updateMatrixWorld()
         gl.render(scene, camera)
-        return gl.domElement.toDataURL('image/png')
+        dctx.clearRect(0, 0, PREVIEW_SIZE, PREVIEW_SIZE)
+        dctx.drawImage(gl.domElement, 0, 0, PREVIEW_SIZE, PREVIEW_SIZE)
+        return downscale.toDataURL('image/png')
       }
 
       return {
