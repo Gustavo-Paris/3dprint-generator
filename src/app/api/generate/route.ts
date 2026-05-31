@@ -24,6 +24,7 @@ import type { PreviewBundle } from '@/lib/design/parse-import'
 import type { SemanticFace } from '@/lib/import/types'
 import { put } from '@vercel/blob'
 import { serialize3mf } from '@/lib/3mf/serialize-3mf'
+import { generateMesh, generateMeshFromImage, isMeshyConfigured } from '@/lib/meshy/client'
 import { and, asc, eq } from 'drizzle-orm'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -205,7 +206,7 @@ export async function POST(req: Request) {
     | null
 
   const allMessages = history.map((h) => h.userMessage).concat([message])
-  let design
+  let design: Design
   let designAdjustments: Array<{ field: string; from: number; to: number }> = []
   let designSource: 'llm' | 'override' | 'quick_modifier' = 'llm'
   try {
@@ -250,22 +251,48 @@ export async function POST(req: Request) {
     return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
   }
 
-  // Build geometry.
-  let result
-  try {
-    result = await generateFromDesign(design, { logoImageBuffer })
-  } catch (err) {
-    const e = err as Error
-    console.error('[generate] generator failed:', e.stack ?? e.message)
-    await db.update(iterations)
-      .set({ status: 'failed', error: `build failed: ${e.message}` })
-      .where(eq(iterations.id, iteration.id))
-    return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
+  // Build geometry. Freeform → Meshy (organic/figurative shapes the parametric
+  // engine can't make); every other kind → the synchronous parametric builder.
+  let finalMeshBytes: Uint8Array
+  let metaBbox: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }
+  if (design.kind === 'freeform') {
+    if (!isMeshyConfigured()) {
+      await db.update(iterations)
+        .set({ status: 'failed', error: 'Freeform generation not configured (MESHY_API_KEY missing)' })
+        .where(eq(iterations.id, iteration.id))
+      return Response.json({
+        error: 'Freeform generation is not configured. Set MESHY_API_KEY or rephrase as a parametric shape.',
+        iteration_id: iteration.id,
+      }, { status: 503 })
+    }
+    const apiKey = process.env.MESHY_API_KEY as string
+    const meshy = design.sourceImageUrl
+      ? await generateMeshFromImage({ imageUrl: design.sourceImageUrl, apiKey })
+      : await generateMesh({ prompt: design.prompt, apiKey })
+    if (!meshy.ok) {
+      await db.update(iterations)
+        .set({ status: 'failed', error: `meshy failed: ${meshy.error}` })
+        .where(eq(iterations.id, iteration.id))
+      return Response.json({ error: meshy.error, iteration_id: iteration.id }, { status: 502 })
+    }
+    finalMeshBytes = meshy.stl
+  } else {
+    let result
+    try {
+      result = await generateFromDesign(design, { logoImageBuffer })
+    } catch (err) {
+      const e = err as Error
+      console.error('[generate] generator failed:', e.stack ?? e.message)
+      await db.update(iterations)
+        .set({ status: 'failed', error: `build failed: ${e.message}` })
+        .where(eq(iterations.id, iteration.id))
+      return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
+    }
+    // Parametric builders produce already-grounded geometry in the correct
+    // orientation — no post-processing needed.
+    finalMeshBytes = result.bodies.length > 1 ? serialize3mf(result.bodies) : result.stl
+    metaBbox = result.meta.bboxMm
   }
-
-  // Parametric builders produce already-grounded geometry in the correct
-  // orientation — no post-processing needed.
-  const finalMeshBytes = result.bodies.length > 1 ? serialize3mf(result.bodies) : result.stl
 
   const meshUrl = await persistMesh(finalMeshBytes, session.user.id, projectId, iteration.id)
 
@@ -296,7 +323,7 @@ export async function POST(req: Request) {
     design_adjustments: designAdjustments,
     meta: {
       kind: design.kind,
-      bbox_mm: result.meta.bboxMm,
+      bbox_mm: metaBbox,
     },
   })
 }

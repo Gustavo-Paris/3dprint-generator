@@ -8,6 +8,7 @@ const schema = z.object({
   AUTH_ALLOWED_EMAILS: z.string().min(1),
   AI_GATEWAY_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  MESHY_API_KEY: z.string().optional(),
   E2E_ALLOW_TEST_LOGIN: z.string().optional(),
   SLICER_URL: z.string().url().default('http://localhost:8787'),
   BLOB_READ_WRITE_TOKEN: z.string().optional(),

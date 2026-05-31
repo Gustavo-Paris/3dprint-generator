@@ -9,6 +9,7 @@
 import { generateText } from 'ai'
 import { getClassifierModel } from '@/lib/llm/model'
 import { Design } from './schema'
+import { isMeshyConfigured } from '@/lib/meshy/client'
 import { parseImportEdit, type PreviewBundle } from './parse-import'
 import type { SemanticFace } from '@/lib/import/types'
 
@@ -82,6 +83,10 @@ ${previousBlock}
 
 LATEST MESSAGE (decides the design or modification):
 ${last}
+
+${isMeshyConfigured()
+  ? 'FREEFORM AVAILABLE: if the request is an organic / figurative / irregular object (animal, character, creature, bust, sculpture, toy) that NO primitive fits, output {"kind":"freeform","prompt":"<concise English description optimized for 3D generation>"}.'
+  : 'FREEFORM UNAVAILABLE: never output kind:"freeform"; collapse organic requests to the closest primitive.'}
 
 Reply with ONLY valid JSON matching the schema. No markdown, no prose, no \`\`\` fences.`,
     maxOutputTokens: 800,
@@ -208,6 +213,12 @@ NOTE: parts[i].primitive is an OBJECT (with its own "kind" and dims), NOT a stri
 
 
 flat_plate has an extra optional field 'orientation: "flat" | "vertical"'.
+
+{ "kind": "freeform",
+  "prompt": "<concise English description optimized for 3D generation>",
+  "sourceImageUrl": "<url>" | omit,
+  "artStyle": "realistic" | "sculpture" (default "realistic") }
+Use "freeform" ONLY for organic / figurative / irregular objects that none of the primitives above can express, and ONLY when the message marks freeform AVAILABLE.
 Use "vertical" ONLY for the top piece of a Composite trophy.
 
 # Extruders / Colors (Multi-color)
