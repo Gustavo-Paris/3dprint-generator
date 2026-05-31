@@ -284,6 +284,22 @@ const Composite = z.object({
     .max(4),
 })
 
+/**
+ * Freeform / organic generation — the escape hatch the parametric primitives
+ * can't cover (animals, characters, busts, irregular objects). Routed to Meshy
+ * (text-to-3D, or image-to-3D when `sourceImageUrl` is set).
+ */
+const Freeform = z.object({
+  kind: z.literal('freeform'),
+  prompt: z.string().min(3).max(600),
+  sourceImageUrl: z.string().min(1).optional(),
+  targetMaxDimMm: z
+    .number()
+    .transform((n) => Math.max(20, Math.min(256, n)))
+    .optional(),
+  artStyle: z.enum(['realistic', 'sculpture']).default('realistic'),
+})
+
 export const Design = z.discriminatedUnion('kind', [
   HollowCylinder,
   FlatPlate,
@@ -294,6 +310,7 @@ export const Design = z.discriminatedUnion('kind', [
   CustomKeychain,
   Mug,
   Imported,
+  Freeform,
 ])
 export type Design = z.infer<typeof Design>
 /** Input shape — defaults (extruder, addBridges, texture, …) are optional here.

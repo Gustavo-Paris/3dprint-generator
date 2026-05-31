@@ -114,6 +114,10 @@ export async function generateFromDesign(
       }
       break
     }
+    case 'freeform':
+      // Freeform Designs are generated asynchronously by the /api/generate route
+      // (Meshy text/image-to-3D), never by the synchronous parametric builder.
+      throw new Error('freeform Designs are handled by the Meshy path in the generate route, not generateFromDesign')
     default: {
       const _: never = design
       throw new Error(`Unhandled design kind: ${_}`)
