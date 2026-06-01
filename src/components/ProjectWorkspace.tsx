@@ -6,6 +6,7 @@ import Chat, { type ChatResult, type PreviewBundle } from './Chat'
 import MeshViewer, { type MeshBody, type MeshViewerHandle } from './MeshViewer'
 import SliceButton from './SliceButton'
 import DownloadStlButton from './DownloadStlButton'
+import FlexifyButton from './FlexifyButton'
 import { runInWorker } from '@/lib/jscad/worker-client'
 
 type Project = InferSelectModel<typeof projectsTable>
@@ -235,6 +236,12 @@ export default function ProjectWorkspace({
         />
         <div className="absolute top-4 left-4 z-10 flex gap-2">
           <DownloadStlButton iterationId={iterationId} stl={stl} />
+          <FlexifyButton
+            projectId={project.id}
+            iterationId={iterationId}
+            stl={stl}
+            onFlexified={onResult}
+          />
         </div>
 
         {/* Color configuration panel */}
