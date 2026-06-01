@@ -59,7 +59,11 @@ export default function FlexifyButton({
     }
   }
 
-  if (!iterationId || !stl) return null
+  // Flexify needs a 3MF source — the pipeline unzips it via parse3mf, so an
+  // STL-backed mesh (e.g. a parametric plate) fails with "invalid zip data".
+  // Same PK-zip sniff DownloadStlButton uses; hide the button where it can't run.
+  const is3mf = !!stl && stl[0] === 0x50 && stl[1] === 0x4b
+  if (!iterationId || !stl || !is3mf) return null
 
   return (
     <div className="flex flex-col items-start gap-2">
