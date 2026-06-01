@@ -1,8 +1,9 @@
 ---
 uid: feat-017
-status: open
+status: done
 priority: normal
 scheduled: 2026-05-31
+completed: 2026-05-31
 pomodoros: 0
 tags:
 - task
@@ -21,10 +22,10 @@ Falta só o gatilho no front pra fechar a Fase B ponta-a-ponta pelo navegador.
 
 ## Subtasks
 
-- [ ] Botão "Make it flexi" na iteração atual (`Chat.tsx` ou `ProjectWorkspace.tsx`), visível quando há iteração `ready` com malha
-- [ ] Ao clicar: `POST /api/flexify` com `{ projectId }` (sem `meshUrl` → route usa a última `ready`; allowlist por DB exige URL emitida pelo servidor)
-- [ ] Carregar o 3MF multi-corpo no viewer (worker já faz sniff de 3MF via PK zip → `parse3mf`; reusar caminho de `onResult`/hidratação)
-- [ ] Estado de loading (~1-20s, síncrono no route)
+- [x] Botão "Make it flexi" na iteração atual (`Chat.tsx` ou `ProjectWorkspace.tsx`), visível quando há iteração `ready` com malha
+- [x] Ao clicar: `POST /api/flexify` com `{ projectId }` (sem `meshUrl` → route usa a última `ready`; allowlist por DB exige URL emitida pelo servidor)
+- [x] Carregar o 3MF multi-corpo no viewer (worker já faz sniff de 3MF via PK zip → `parse3mf`; reusar caminho de `onResult`/hidratação)
+- [x] Estado de loading (~1-20s, síncrono no route)
 
 ## Notes
 

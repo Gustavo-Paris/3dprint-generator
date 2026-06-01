@@ -1,8 +1,9 @@
 ---
 uid: task-051
-status: open
+status: done
 priority: normal
 scheduled: 2026-06-01
+completed: 2026-06-01
 pomodoros: 0
 tags:
 - task
@@ -19,8 +20,8 @@ Description here.
 
 ## Subtasks
 
-- [ ] Subtask 1
-- [ ] Subtask 2
+- [x] Subtask 1
+- [x] Subtask 2
 
 ## Notes
 
