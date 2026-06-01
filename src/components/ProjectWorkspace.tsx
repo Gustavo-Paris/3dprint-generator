@@ -7,7 +7,9 @@ import MeshViewer, { type MeshBody, type MeshViewerHandle } from './MeshViewer'
 import SliceButton from './SliceButton'
 import DownloadStlButton from './DownloadStlButton'
 import FlexifyButton from './FlexifyButton'
+import MeshValidityBanner from './MeshValidityBanner'
 import { runInWorker } from '@/lib/jscad/worker-client'
+import type { MeshValidityReport } from '@/lib/mesh/validity'
 
 type Project = InferSelectModel<typeof projectsTable>
 type Iteration = InferSelectModel<typeof iterationsTable>
@@ -48,6 +50,8 @@ export default function ProjectWorkspace({
   const [bodies, setBodies] = useState<MeshBody[] | null>(null)
   const [stl, setStl] = useState<Uint8Array | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Advisory mesh-validity report for whatever mesh is currently in the viewer.
+  const [validity, setValidity] = useState<MeshValidityReport | null>(null)
 
   // 3MF import flow: track the pending mesh URL + captured previews.
   const meshViewerRef = useRef<MeshViewerHandle>(null)
@@ -59,6 +63,7 @@ export default function ProjectWorkspace({
     if (!lastReady) return
     let cancelled = false
     setError(null)
+    setValidity(null)
     ;(async () => {
       try {
         if (lastReady.strategy === 'parametric' && lastReady.jscadCode) {
@@ -68,6 +73,7 @@ export default function ProjectWorkspace({
             setPositions(r.positions)
             setStl(r.stl)
             setBodies(r.bodies)
+            setValidity(r.validity ?? null)
           } else setError(r.error)
         } else if (lastReady.strategy === 'generative' && lastReady.meshBlobUrl) {
           const res = await fetch(lastReady.meshBlobUrl)
@@ -79,6 +85,7 @@ export default function ProjectWorkspace({
             setPositions(r.positions)
             setStl(bytes)
             setBodies(r.bodies)
+            setValidity(r.validity ?? null)
           } else setError(r.error)
         }
       } catch (e) {
@@ -117,6 +124,7 @@ export default function ProjectWorkspace({
     setPendingMeshUrl(meshUrl)
     setPendingPreviews(null)
     setError(null)
+    setValidity(null)
     try {
       const res = await fetch(meshUrl)
       if (!res.ok) throw new Error(`Mesh fetch ${res.status}`)
@@ -126,6 +134,7 @@ export default function ProjectWorkspace({
         setPositions(result.positions)
         setStl(bytes)
         setBodies(result.bodies)
+        setValidity(result.validity ?? null)
       } else {
         setError(result.error)
       }
@@ -137,6 +146,7 @@ export default function ProjectWorkspace({
   async function onResult(r: ChatResult) {
     setIterationId(r.iterationId)
     setError(null)
+    setValidity(null)
     // After the first successful generate with a pending mesh, clear the pending
     // state — the server has now cached the faces and previews in the iteration.
     if (pendingMeshUrl) {
@@ -150,6 +160,7 @@ export default function ProjectWorkspace({
           setPositions(result.positions)
           setStl(result.stl)
           setBodies(result.bodies)
+          setValidity(result.validity ?? null)
         } else setError(result.error)
       } else {
         let bytes: Uint8Array
@@ -167,6 +178,7 @@ export default function ProjectWorkspace({
           setPositions(result.positions)
           setStl(bytes)
           setBodies(result.bodies)
+          setValidity(result.validity ?? null)
         } else setError(result.error)
       }
     } catch (e) {
@@ -270,6 +282,7 @@ export default function ProjectWorkspace({
         </div>
 
         <SliceButton iterationId={iterationId} stl={stl} />
+        {!error && <MeshValidityBanner report={validity} />}
         {error && (
           <div className="absolute bottom-4 left-4 right-4 bg-red-50 text-red-900 border border-red-200 rounded p-3 text-xs">
             <strong>Error:</strong> {error}
