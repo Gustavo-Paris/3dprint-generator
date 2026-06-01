@@ -1,16 +1,23 @@
 import { runJscad, parseBinarySTL } from './runner'
 import type { JscadResult } from './runner'
 import { parse3mf } from '@/lib/3mf/parse-3mf'
+import { analyzeMeshValidity } from '@/lib/mesh/validity'
 
 type Input =
   | { type: 'jscad'; code: string }
   | { type: 'stl'; stl: Uint8Array }
 
+/** Single exit point: attach the advisory validity report (computed once, off
+ * the main thread) to every successful result, then post it. */
+function reply(result: JscadResult): void {
+  if (result.ok) result.validity = analyzeMeshValidity(result.positions)
+  ;(self as unknown as Worker).postMessage(result)
+}
+
 self.onmessage = async (e: MessageEvent<Input>) => {
   const msg = e.data
   if (msg.type === 'jscad') {
-    const result = await runJscad(msg.code)
-    ;(self as unknown as Worker).postMessage(result)
+    reply(await runJscad(msg.code))
     return
   }
   if (msg.type === 'stl') {
@@ -33,7 +40,7 @@ self.onmessage = async (e: MessageEvent<Input>) => {
           triangleCount: mergedPositions.length / 9,
           stl: bytes,
         }
-        ;(self as unknown as Worker).postMessage(result)
+        reply(result)
       } else {
         const positions = parseBinarySTL(bytes)
         const result: JscadResult = {
@@ -47,10 +54,10 @@ self.onmessage = async (e: MessageEvent<Input>) => {
           triangleCount: positions.length / 9,
           stl: bytes,
         }
-        ;(self as unknown as Worker).postMessage(result)
+        reply(result)
       }
     } catch (err) {
-      ;(self as unknown as Worker).postMessage({ ok: false, error: String(err) })
+      reply({ ok: false, error: String(err) })
     }
   }
 }

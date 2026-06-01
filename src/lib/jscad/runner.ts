@@ -1,6 +1,7 @@
 import * as jscadModeling from '@jscad/modeling'
 import { compileUserModule } from './sandbox'
 import { serializeBinarySTL } from '@/lib/stl/serialize'
+import type { MeshValidityReport } from '@/lib/mesh/validity'
 
 export type JscadResult =
   | {
@@ -9,6 +10,10 @@ export type JscadResult =
       bodies: { positions: Float32Array; extruder: 'A' | 'B'; label: string }[]
       triangleCount: number
       stl: Uint8Array
+      /** Advisory manifold/watertight report. Attached by the worker after the
+       * geometry is built (see worker-entry.ts). Optional so non-worker callers
+       * of runJscad don't have to compute it. */
+      validity?: MeshValidityReport
     }
   | { ok: false; error: string }
 
