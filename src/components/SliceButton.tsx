@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 type SliceMeta = { print_time_min: number | null; filament_g: number | null }
 type SliceResponse = { url: string | null; inline_base64: string | null; meta: SliceMeta }
@@ -14,6 +14,33 @@ export default function SliceButton({
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<SliceResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // null = not yet checked; false = slicer offline (Slice disabled proactively).
+  const [slicerOk, setSlicerOk] = useState<boolean | null>(null)
+
+  // Probe slicer availability once a mesh is ready, so the user learns the
+  // slicer is down before clicking rather than after a failed slice.
+  useEffect(() => {
+    if (!iterationId || !stl) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/slicer-health')
+        // Only the slicer's own signal (200 + body.ok) flips us to offline. A
+        // non-ok response or a thrown fetch here is an APP-origin problem
+        // (session expiry, route 500, blip to our own server) — NOT proof the
+        // slicer is down. Stay indeterminate (null → button enabled) and let the
+        // /api/slice route be the authoritative gate, instead of falsely blocking.
+        if (!res.ok) return
+        const body = (await res.json()) as { ok?: boolean }
+        if (!cancelled) setSlicerOk(body.ok === true)
+      } catch {
+        // App-origin network blip — indeterminate, do not hard-block.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [iterationId, stl])
 
   async function onClick() {
     if (!iterationId || !stl) return
@@ -72,11 +99,17 @@ export default function SliceButton({
     <div className="absolute top-4 right-4 flex flex-col items-end gap-2 z-10">
       <button
         onClick={onClick}
-        disabled={busy}
+        disabled={busy || slicerOk === false}
+        title={slicerOk === false ? 'Slicer offline — fatiamento indisponível' : undefined}
         className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-50 shadow"
       >
         {busy ? 'Slicing…' : 'Slice for printing'}
       </button>
+      {slicerOk === false && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded px-3 py-2 text-xs max-w-xs">
+          Slicer offline — fatiamento indisponível. Verifique o serviço (SLICER_URL).
+        </div>
+      )}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-900 rounded px-3 py-2 text-xs max-w-xs whitespace-pre-wrap">
           {error}
