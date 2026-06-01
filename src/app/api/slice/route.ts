@@ -1,7 +1,7 @@
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
-import { sliceStl } from '@/lib/slicer/client'
+import { sliceStl, SlicerError } from '@/lib/slicer/client'
 import { put } from '@vercel/blob'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -34,6 +34,11 @@ export async function POST(req: Request) {
   try {
     result = await sliceStl(Buffer.from(stlBase64, 'base64'))
   } catch (e) {
+    if (e instanceof SlicerError) {
+      // offline/timeout → 503 (slicer unavailable); slicer-side failure → 502.
+      const status = e.kind === 'slicer' ? 502 : 503
+      return new Response(e.message, { status })
+    }
     return new Response(`Slicer error: ${(e as Error).message}`, { status: 502 })
   }
 
