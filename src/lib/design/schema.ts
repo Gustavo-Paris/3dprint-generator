@@ -223,13 +223,21 @@ const HoleOp = z.object({
 
 const AddLogoOp = z.object({
   op: z.literal('add_logo'),
-  faceId: z.number().int().nonnegative(),
+  /** Semantic face to place on (LLM path). Optional when an explicit anchor is
+   *  given (click-to-place path). */
+  faceId: z.number().int().nonnegative().optional(),
+  /** Exact placement (click-to-place): world point on the mesh surface + the
+   *  local surface normal there, both in mesh/JSCAD space. Overrides faceId —
+   *  lands the logo precisely where the user clicked, not at a coarse face
+   *  centroid. */
+  anchorPoint: z.tuple([z.number(), z.number(), z.number()]).optional(),
+  anchorNormal: z.tuple([z.number(), z.number(), z.number()]).optional(),
   // Absolute URL (blob) or relative path (`/uploads/...` in local dev).
   imageUrl: z.string().min(1),
   sizeMm: z.number().positive(),
   depthMm: z.number().positive().default(0.6),
   treatment: z.enum(['embossed', 'engraved', 'through_cut']).default('embossed'),
-  /** Optional in-plane offset from face centroid. */
+  /** Optional in-plane offset from the anchor/centroid. */
   offsetMm: z.tuple([z.number(), z.number()]).default([0, 0]),
 })
 

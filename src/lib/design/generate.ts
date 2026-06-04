@@ -13,6 +13,7 @@ import type { Geom3 } from '@jscad/modeling/src/geometries/geom3'
 import { extrudeLogo } from '@/lib/logo-extrude/extrude'
 import { serializeBinarySTL } from '@/lib/stl/serialize'
 import type { Design, LogoSpec } from './schema'
+import type { EditWarning } from '@/lib/import/types'
 
 /** Width / height ratio of the source image. Falls back to 1 (square) on failure. */
 export async function readImageAspectRatio(buffer: Buffer): Promise<number> {
@@ -55,6 +56,8 @@ export interface GenerateResult {
     kind: Design['kind']
     bboxMm: { x: number; y: number; z: number }
   }
+  /** Edits that were skipped or failed (imported flow). Empty for parametric. */
+  warnings: EditWarning[]
 }
 
 interface InternalBuildResult {
@@ -65,6 +68,7 @@ interface InternalBuildResult {
     kind: Design['kind']
     bboxMm: { x: number; y: number; z: number }
   }
+  warnings?: EditWarning[]
 }
 
 export async function generateFromDesign(
@@ -88,7 +92,7 @@ export async function generateFromDesign(
 
       const base = await loadBaseMeshFromUrl(design.baseMeshUrl)
       const faces = segmentFaces(base)
-      const { mesh, warnings } = await applyEdits(base, design.edits, faces)
+      const { mesh, warnings } = await applyEdits(base, design.edits, faces, ctx.logoImageBuffer)
 
       if (warnings.length > 0) {
         console.warn('[generate:imported] warnings:', warnings)
@@ -111,6 +115,7 @@ export async function generateFromDesign(
           kind: 'imported',
           bboxMm: { x: mesh.bbox.size[0], y: mesh.bbox.size[1], z: mesh.bbox.size[2] },
         },
+        warnings,
       }
       break
     }
@@ -144,6 +149,7 @@ export async function generateFromDesign(
     stl,
     bodies: result.bodies,
     meta: result.meta,
+    warnings: result.warnings ?? [],
   }
 }
 

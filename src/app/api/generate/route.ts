@@ -51,6 +51,15 @@ const Body = z.object({
    * ("sizeRatio EXACTLY 0.85") that natural-language iteration handles
    * poorly. */
   designOverride: Design.optional(),
+  /** Click-to-place: an exact point + normal on the imported mesh (mesh space)
+   * where the logo should go. Bypasses the LLM and semantic faces entirely. */
+  logoPlacement: z.object({
+    point: z.tuple([z.number(), z.number(), z.number()]),
+    normal: z.tuple([z.number(), z.number(), z.number()]),
+    treatment: z.enum(['embossed', 'engraved', 'through_cut']).default('embossed'),
+    sizeMm: z.number().positive().default(20),
+    depthMm: z.number().positive().default(1),
+  }).optional(),
 })
 
 export async function POST(req: Request) {
@@ -59,7 +68,7 @@ export async function POST(req: Request) {
 
   const parsed = Body.safeParse(await req.json())
   if (!parsed.success) return new Response('Invalid body', { status: 400 })
-  const { projectId, message, imageUrl, meshUrl: freshMeshUrl, previewDataUrls: freshPreviews, designOverride } = parsed.data
+  const { projectId, message, imageUrl, meshUrl: freshMeshUrl, previewDataUrls: freshPreviews, designOverride, logoPlacement } = parsed.data
 
   const [project] = await db
     .select()
@@ -211,7 +220,34 @@ export async function POST(req: Request) {
   let designSource: 'llm' | 'override' | 'quick_modifier' = 'llm'
   try {
     let candidate: Awaited<ReturnType<typeof parseDesign>>
-    if (designOverride) {
+    if (logoPlacement) {
+      // Click-to-place: build the imported edit directly from the picked point —
+      // no LLM, no semantic-face guesswork. The logo lands exactly where clicked.
+      if (!effectiveMeshUrl) {
+        await db.update(iterations)
+          .set({ status: 'failed', error: 'logoPlacement requires an imported base mesh' })
+          .where(eq(iterations.id, iteration.id))
+        return Response.json({
+          error: 'No imported mesh to place the logo on.',
+          iteration_id: iteration.id,
+        }, { status: 400 })
+      }
+      candidate = {
+        kind: 'imported',
+        baseMeshUrl: effectiveMeshUrl,
+        edits: [{
+          op: 'add_logo',
+          anchorPoint: logoPlacement.point,
+          anchorNormal: logoPlacement.normal,
+          imageUrl: effectiveImageUrl ?? 'logo',
+          sizeMm: logoPlacement.sizeMm,
+          depthMm: logoPlacement.depthMm,
+          treatment: logoPlacement.treatment,
+          offsetMm: [0, 0],
+        }],
+      } as Awaited<ReturnType<typeof parseDesign>>
+      designSource = 'override'
+    } else if (designOverride) {
       candidate = designOverride
       designSource = 'override'
     } else {
@@ -255,6 +291,7 @@ export async function POST(req: Request) {
   // engine can't make); every other kind → the synchronous parametric builder.
   let finalMeshBytes: Uint8Array
   let metaBbox: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }
+  let editWarnings: Array<{ opIndex: number; op: string; reason: string }> = []
   if (design.kind === 'freeform') {
     if (!isMeshyConfigured()) {
       await db.update(iterations)
@@ -292,6 +329,7 @@ export async function POST(req: Request) {
     // orientation — no post-processing needed.
     finalMeshBytes = result.bodies.length > 1 ? serialize3mf(result.bodies) : result.stl
     metaBbox = result.meta.bboxMm
+    editWarnings = result.warnings
   }
 
   const meshUrl = await persistMesh(finalMeshBytes, session.user.id, projectId, iteration.id)
@@ -321,6 +359,7 @@ export async function POST(req: Request) {
     mesh_base64: null,
     design,
     design_adjustments: designAdjustments,
+    warnings: editWarnings,
     meta: {
       kind: design.kind,
       bbox_mm: metaBbox,

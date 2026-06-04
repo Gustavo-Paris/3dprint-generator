@@ -26,14 +26,20 @@ beforeAll(async () => {
 })
 
 describe('applyAddLogo', () => {
-  it('embossed adds geometry above the chosen face', async () => {
+  it('embossed appends a separate extruder-B body protruding above the face', async () => {
     const topFace = faces.findIndex((f) => Math.abs(f.normal[2] - 1) < 0.01)
     const out = await applyAddLogo(cube, {
       op: 'add_logo', faceId: topFace, imageUrl: 'http://mock/logo.png',
       sizeMm: 10, depthMm: 0.6, treatment: 'embossed', offsetMm: [0, 0],
     }, faces)
-    // Z bbox should be roughly 30 + 0.6 = 30.6 for embossed
-    expect(out.bbox.size[2]).toBeGreaterThan(30.4)
+    // The logo is a distinct extruder-B body (two-colour print), not unioned.
+    const extruders = new Set(out.extruders)
+    expect(extruders.has('A')).toBe(true)
+    expect(extruders.has('B')).toBe(true)
+    // It protrudes above the 30mm cube, but sits slightly embedded (< full
+    // depth) so the slicer fuses it: 30 < z < 30.6.
+    expect(out.bbox.size[2]).toBeGreaterThan(30.3)
+    expect(out.bbox.size[2]).toBeLessThan(30.6)
   })
 
   it('engraved reduces or keeps bbox', async () => {

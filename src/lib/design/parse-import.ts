@@ -48,7 +48,8 @@ export async function parseImportEdit(input: ParseImportEditInput): Promise<Desi
   const earlier = messages.slice(0, -1)
 
   const faceTable = faces.map((f) =>
-    `F${f.id}: normal=[${f.normal.map((c) => c.toFixed(2)).join(',')}] ` +
+    `F${f.id}: ${faceDirection(f.normal)} ` +
+    `normal=[${f.normal.map((c) => c.toFixed(2)).join(',')}] ` +
     `centroid=[${f.centroid.map((c) => c.toFixed(1)).join(',')}] ` +
     `area=${f.areaMm2.toFixed(0)}mm² ` +
     `bboxOnPlane={x:${f.bboxOnPlane.min[0].toFixed(1)}..${f.bboxOnPlane.max[0].toFixed(1)},` +
@@ -67,7 +68,16 @@ export async function parseImportEdit(input: ParseImportEditInput): Promise<Desi
     `- bbox: ${bboxMm[0].toFixed(1)} × ${bboxMm[1].toFixed(1)} × ${bboxMm[2].toFixed(1)} mm\n\n` +
     `SEMANTIC FACES (top by area, use 'faceId' to reference):\n` +
     (faceTable || '(no faces detected)') +
-    `\n\nEARLIER MESSAGES:\n` +
+    `\n\nFACE DIRECTIONS — each face is tagged FRONT/BACK/LEFT/RIGHT/TOP/BOTTOM ` +
+    `from its normal in the standard orientation: FRONT=toward the viewer (−Y), ` +
+    `BACK=+Y, RIGHT=+X, LEFT=−X, TOP=+Z, BOTTOM=−Z. Map the user's words: ` +
+    `"frente/frontal/front"→FRONT, "trás/atrás/costas/back"→BACK, ` +
+    `"lado/lateral/side"→LEFT or RIGHT, "topo/cima/top"→TOP, ` +
+    `"base/pedestal/pé/embaixo/bottom" refers to the LOWER part → among matching ` +
+    `faces prefer the one with the most negative Z centroid. ` +
+    `IMPORTANT: the preview images are NOT axis-aligned — trust these direction ` +
+    `tags and the normals over the images when choosing a face.\n\n` +
+    `EARLIER MESSAGES:\n` +
     (earlier.length ? earlier.map((m, i) => `(${i + 1}) ${m}`).join('\n') : '(none)') +
     `\n\n${previousBlock}\n\n` +
     `LATEST MESSAGE:\n${last}\n\n` +
@@ -137,9 +147,11 @@ Always emit a JSON object with kind="imported", echoing the provided baseMeshUrl
 
 # Face references
 
-Use the F0/F1/... ids from the SEMANTIC FACES list. (u, v) coordinates in
-"positions" or "offsetMm" are in the face's tangent plane, centered on the
-face centroid, in millimetres.
+Use the F0/F1/... ids from the SEMANTIC FACES list. Each face carries a
+direction tag (FRONT/BACK/LEFT/RIGHT/TOP/BOTTOM) — match the user's words to it,
+and trust the tag + normal over the preview images (which are not axis-aligned).
+(u, v) coordinates in "positions" or "offsetMm" are in the face's tangent
+plane, centered on the face centroid, in millimetres.
 
 # When to use jscad_raw
 
@@ -155,3 +167,18 @@ Patch the relevant edit (e.g. change positions, increase depth) rather
 than rebuilding from scratch.
 
 Output ONLY the JSON. No prose, no markdown fences.`
+
+/**
+ * Tag a face with a human direction from its dominant normal axis, in the
+ * viewer's standard orientation: FRONT faces the default camera (−Y), BACK +Y,
+ * RIGHT +X, LEFT −X, TOP +Z, BOTTOM −Z. The captured preview images are not
+ * axis-aligned (the viewer rotates the mesh −90° about X), so the LLM mislabels
+ * faces from images alone — these tags give it a reliable signal instead.
+ */
+function faceDirection(normal: readonly [number, number, number]): string {
+  const [x, y, z] = normal
+  const ax = Math.abs(x), ay = Math.abs(y), az = Math.abs(z)
+  if (az >= ax && az >= ay) return z > 0 ? 'TOP' : 'BOTTOM'
+  if (ay >= ax) return y > 0 ? 'BACK' : 'FRONT'
+  return x > 0 ? 'RIGHT' : 'LEFT'
+}

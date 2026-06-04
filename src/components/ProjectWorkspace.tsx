@@ -221,6 +221,62 @@ export default function ProjectWorkspace({
   const [bodyColor, setBodyColor] = useState('#3b82f6')
   const [logoColor, setLogoColor] = useState('#f8fafc')
 
+  // Click-to-place logo: toggle pick mode, capture the picked point + normal,
+  // then POST it as a logoPlacement (no LLM, lands exactly where clicked).
+  const [pickMode, setPickMode] = useState(false)
+  const [pick, setPick] = useState<{
+    point: [number, number, number]
+    normal: [number, number, number]
+  } | null>(null)
+  const [placeTreatment, setPlaceTreatment] = useState<'embossed' | 'engraved'>('embossed')
+  const [placeSizeMm, setPlaceSizeMm] = useState(20)
+  const [placing, setPlacing] = useState(false)
+
+  async function applyLogoPlacement() {
+    if (!pick) return
+    setPlacing(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          projectId: project.id,
+          message: `logo ${placeTreatment === 'engraved' ? 'gravado' : 'em relevo'} (posicionado no viewer)`,
+          logoPlacement: {
+            point: pick.point,
+            normal: pick.normal,
+            treatment: placeTreatment,
+            sizeMm: placeSizeMm,
+            depthMm: placeTreatment === 'engraved' ? 1.0 : 1.2,
+          },
+        }),
+      })
+      if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
+      const body = (await res.json()) as {
+        iteration_id: string
+        mesh_url: string | null
+        mesh_base64: string | null
+        warnings?: Array<{ op: string; reason: string }>
+      }
+      if (body.warnings && body.warnings.length > 0) {
+        setError(body.warnings.map((w) => `${w.op}: ${w.reason}`).join(' · '))
+      }
+      await onResult({
+        kind: 'generative',
+        iterationId: body.iteration_id,
+        meshUrl: body.mesh_url,
+        meshBase64: body.mesh_base64,
+      })
+      setPick(null)
+      setPickMode(false)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setPlacing(false)
+    }
+  }
+
   return (
     <main className="h-screen grid grid-cols-[420px_1fr]">
       <aside className="border-r flex flex-col min-h-0">
@@ -245,6 +301,9 @@ export default function ProjectWorkspace({
           fitKey={iterationId ?? undefined}
           bodyColor={bodyColor}
           logoColor={logoColor}
+          pickMode={pickMode}
+          onPick={(point, normal) => setPick({ point, normal })}
+          pickMarker={pick?.point ?? null}
         />
         <div className="absolute top-4 left-4 z-10 flex gap-2">
           <DownloadStlButton iterationId={iterationId} stl={stl} />
@@ -254,7 +313,65 @@ export default function ProjectWorkspace({
             stl={stl}
             onFlexified={onResult}
           />
+          {positions && (
+            <button
+              onClick={() => { setPickMode((v) => !v); setPick(null) }}
+              className={`px-3 py-2 rounded text-sm font-medium border shadow-sm ${
+                pickMode
+                  ? 'bg-orange-500 text-white border-orange-600'
+                  : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+              }`}
+              title="Clique num ponto do modelo para posicionar o logo ali"
+            >
+              📍 {pickMode ? 'Cancelar' : 'Logo aqui'}
+            </button>
+          )}
         </div>
+
+        {/* Click-to-place panel */}
+        {pickMode && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 flex items-center gap-3 text-sm">
+            {!pick ? (
+              <span className="text-gray-600">👆 Clique no ponto do modelo onde quer o logo (arraste para girar)</span>
+            ) : (
+              <>
+                <div className="flex rounded border border-gray-300 overflow-hidden">
+                  {(['embossed', 'engraved'] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setPlaceTreatment(t)}
+                      className={`px-2.5 py-1 ${placeTreatment === t ? 'bg-gray-900 text-white' : 'bg-white text-gray-700'}`}
+                    >
+                      {t === 'embossed' ? 'Alto-relevo' : 'Gravado'}
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-1 text-gray-700">
+                  Tamanho
+                  <input
+                    type="number"
+                    min={5}
+                    max={60}
+                    value={placeSizeMm}
+                    onChange={(e) => setPlaceSizeMm(Math.max(5, Math.min(60, Number(e.target.value) || 20)))}
+                    className="w-14 border border-gray-300 rounded px-1 py-0.5"
+                  />
+                  mm
+                </label>
+                <button
+                  onClick={applyLogoPlacement}
+                  disabled={placing}
+                  className="px-3 py-1 rounded bg-orange-500 text-white font-medium disabled:opacity-60"
+                >
+                  {placing ? 'Aplicando…' : 'Aplicar logo'}
+                </button>
+                <button onClick={() => setPick(null)} className="text-gray-500 hover:text-gray-800">
+                  limpar
+                </button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Color configuration panel */}
         <div className="absolute top-4 right-4 z-10 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-3 shadow-sm flex flex-col gap-2 text-xs text-gray-700">

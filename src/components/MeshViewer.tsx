@@ -93,6 +93,12 @@ interface MeshViewerProps {
   fitKey?: string
   bodyColor?: string
   logoColor?: string
+  /** Click-to-place: when true, clicking the mesh reports the hit point +
+   *  surface normal (in mesh/JSCAD space) via onPick. */
+  pickMode?: boolean
+  onPick?: (point: [number, number, number], normal: [number, number, number]) => void
+  /** Mesh-space point to mark with a sphere (the last pick). */
+  pickMarker?: [number, number, number] | null
 }
 
 /**
@@ -150,6 +156,9 @@ const MeshViewerInner = forwardRef<MeshViewerHandle, MeshViewerProps>(function M
   fitKey,
   bodyColor = '#3b82f6',
   logoColor = '#f8fafc',
+  pickMode = false,
+  onPick,
+  pickMarker = null,
 }, ref) {
   const parsedBodies = useMemo(() => {
     if (bodies && bodies.length > 0) return bodies
@@ -194,7 +203,20 @@ const MeshViewerInner = forwardRef<MeshViewerHandle, MeshViewerProps>(function M
       {geometries.map((g, idx) => (
         // JSCAD is Z-up; three.js is Y-up. Rotate -90° around X so "up" agrees
         // with the viewer's natural orientation.
-        <mesh key={idx} geometry={g.geometry} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh
+          key={idx}
+          geometry={g.geometry}
+          rotation={[-Math.PI / 2, 0, 0]}
+          onPointerDown={(e) => {
+            if (!pickMode || !onPick) return
+            e.stopPropagation()
+            // Convert world hit point → mesh/JSCAD space (undo the -90°X). The
+            // raycast face normal is already in geometry/local (= mesh) space.
+            const local = e.object.worldToLocal(e.point.clone())
+            const n = e.face?.normal ? e.face.normal.clone() : new THREE.Vector3(0, 0, 1)
+            onPick([local.x, local.y, local.z], [n.x, n.y, n.z])
+          }}
+        >
           <meshStandardMaterial
             color={g.extruder === 'B' ? logoColor : bodyColor} // Custom body and logo colors
             roughness={0.5}
@@ -202,6 +224,16 @@ const MeshViewerInner = forwardRef<MeshViewerHandle, MeshViewerProps>(function M
           />
         </mesh>
       ))}
+      {pickMarker && (
+        // Marker lives in the same rotated frame as the meshes so a mesh-space
+        // point maps to the right spot.
+        <group rotation={[-Math.PI / 2, 0, 0]}>
+          <mesh position={pickMarker}>
+            <sphereGeometry args={[1.2, 16, 16]} />
+            <meshStandardMaterial color="#f97316" emissive="#f97316" emissiveIntensity={0.5} />
+          </mesh>
+        </group>
+      )}
       <OrbitControls makeDefault />
       {positions && fitKey && <FitCameraToObject positions={positions} fitKey={fitKey} />}
       <GizmoHelper alignment="bottom-right" margin={[80, 80]}>

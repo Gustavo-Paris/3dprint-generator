@@ -2,24 +2,53 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Op } from '@/lib/design/schema'
 import type { BaseMesh, SemanticFace } from '../types'
-import { baseMeshToGeom3, geom3ToBaseMesh } from './_shared'
+import { geom3ToBaseMesh, recomputeMeshDerived } from './_shared'
 import { extrudeLogo } from '@/lib/logo-extrude/extrude'
 import type Geom3 from '@jscad/modeling/src/geometries/geom3/type'
 
 type AddLogoParams = Extract<Op, { op: 'add_logo' }>
 
+/**
+ * Apply a logo to a face of an (arbitrarily heavy) imported mesh.
+ *
+ * Two scale-free paths, picked by treatment so neither hits JSCAD's BSP limit:
+ *   - **embossed** (raised): the extruded logo is appended as a SEPARATE
+ *     extruder-B body sitting on the surface (sunk slightly so the slicer fuses
+ *     it). No boolean → works on 700k+ triangle meshes.
+ *   - **engraved / through_cut** (recessed/pierced): a volumetric subtract via
+ *     Manifold (handles millions of triangles where JSCAD OOMs). Requires the
+ *     base to be a watertight solid — throws otherwise (surfaced as a warning).
+ */
 export async function applyAddLogo(
   mesh: BaseMesh,
   op: AddLogoParams,
   faces: SemanticFace[],
+  logoImageBuffer?: Buffer | null,
 ): Promise<BaseMesh> {
-  const face = faces[op.faceId]
-  if (!face) throw new Error(`face ${op.faceId} out of range (have ${faces.length})`)
+  // Placement frame: an explicit anchor (click-to-place) wins over a semantic
+  // face (LLM path). The anchor lets the logo land exactly where the user
+  // clicked, which semantic faces (grouped by normal only) can't pin down.
+  let placeCentroid: [number, number, number]
+  let placeNormal: [number, number, number]
+  if (op.anchorPoint && op.anchorNormal) {
+    placeCentroid = op.anchorPoint
+    const [nx, ny, nz] = op.anchorNormal
+    const len = Math.hypot(nx, ny, nz) || 1
+    placeNormal = [nx / len, ny / len, nz / len]
+  } else {
+    const face = op.faceId != null ? faces[op.faceId] : undefined
+    if (!face) throw new Error(`face ${op.faceId} out of range (have ${faces.length})`)
+    placeCentroid = face.centroid
+    placeNormal = face.normal
+  }
 
-  // Fetch the logo image. Accepts absolute URL (blob) or local path
-  // (`/uploads/...` resolved against the Next `public/` dir in dev).
+  // The server already resolved the uploaded logo into a buffer — trust that
+  // over op.imageUrl, which the LLM routinely hallucinates (e.g. "company_logo").
+  // Fall back to the op URL/path only when no buffer was supplied (unit tests).
   let imgBuffer: Buffer
-  if (op.imageUrl.startsWith('http://') || op.imageUrl.startsWith('https://')) {
+  if (logoImageBuffer) {
+    imgBuffer = logoImageBuffer
+  } else if (op.imageUrl.startsWith('http://') || op.imageUrl.startsWith('https://')) {
     const res = await fetch(op.imageUrl)
     if (!res.ok) throw new Error(`logo fetch failed: ${res.status}`)
     imgBuffer = Buffer.from(await res.arrayBuffer())
@@ -28,6 +57,13 @@ export async function applyAddLogo(
     imgBuffer = await readFile(join(process.cwd(), 'public', rel))
   }
 
+  const isThrough = op.treatment === 'through_cut'
+
+  // through_cut must pierce the whole local thickness; size the cutter to the
+  // mesh's largest dimension so the silhouette punches clear through. Engrave /
+  // emboss use the requested depth.
+  const cutterDepth = isThrough ? Math.max(...mesh.bbox.size) * 1.2 : op.depthMm
+
   // Extrude the logo using the existing pipeline.
   // extrudeLogo returns a geom3 in "standing" orientation:
   //   - logo faces +Z, depth along Y, centered at origin
@@ -35,7 +71,7 @@ export async function applyAddLogo(
   const logoResult = await extrudeLogo({
     imageBuffer: imgBuffer,
     targetMaxDim: op.sizeMm,
-    depthMm: op.depthMm,
+    depthMm: cutterDepth,
     // Provide sensible defaults for the rest.
     binaryThreshold: 128,
     turdSize: 4,
@@ -47,44 +83,84 @@ export async function applyAddLogo(
     throw new Error('extrudeLogo returned no geom3 — image may have no traceable content')
   }
 
-  const { booleans, transforms } = await import('@jscad/modeling')
+  // Resolve @jscad/modeling regardless of CJS-vs-ESM default-export shape
+  // (mirrors loadJscad in _shared.ts — bare destructure breaks under tsx/node).
+  const jscadNs = await import('@jscad/modeling')
+  const { transforms } =
+    (jscadNs as unknown as { default?: typeof import('@jscad/modeling') }).default ?? jscadNs
 
   // Lay the logo flat: rotateX(-π/2) maps standing → flat.
   // After this, the logo lies on the XY plane:
-  //   - face area in XY, depth (op.depthMm) along +Z
-  //   - Z range: [-depthMm/2, +depthMm/2] (centered at origin)
+  //   - face area in XY, depth (cutterDepth) along +Z
+  //   - Z range: [-cutterDepth/2, +cutterDepth/2] (centered at origin)
   let flat = transforms.rotateX(-Math.PI / 2, logoResult.geom3 as never) as Geom3
 
-  // Orient +Z to face normal (same logic as hole.ts orientAlongNormal).
-  flat = orientAlongNormal(flat, face.normal, transforms)
+  // Orient +Z to the placement normal (same logic as hole.ts orientAlongNormal).
+  flat = orientAlongNormal(flat, placeNormal, transforms)
 
   // Compute tangent frame for in-plane offset.
-  const { tangent, bitangent } = makeFrame(face.normal)
+  const { tangent, bitangent } = makeFrame(placeNormal)
 
-  // Base world position: face centroid + in-plane offset.
-  const wx = face.centroid[0] + op.offsetMm[0] * tangent[0] + op.offsetMm[1] * bitangent[0]
-  const wy = face.centroid[1] + op.offsetMm[0] * tangent[1] + op.offsetMm[1] * bitangent[1]
-  const wz = face.centroid[2] + op.offsetMm[0] * tangent[2] + op.offsetMm[1] * bitangent[2]
+  // Base world position: anchor/centroid + in-plane offset.
+  const wx = placeCentroid[0] + op.offsetMm[0] * tangent[0] + op.offsetMm[1] * bitangent[0]
+  const wy = placeCentroid[1] + op.offsetMm[0] * tangent[1] + op.offsetMm[1] * bitangent[1]
+  const wz = placeCentroid[2] + op.offsetMm[0] * tangent[2] + op.offsetMm[1] * bitangent[2]
 
-  // Shift along face normal so the logo sits on (embossed) or inside (engraved) the surface.
-  // The flat geom center is at origin (Z=0), so:
-  //   - embossed: push by +depthMm/2 so the base is at the face surface
-  //   - engraved/through_cut: push by -depthMm/2 so the top is at the face surface (cuts inward)
-  const normalShift = op.treatment === 'embossed' ? op.depthMm / 2 : -op.depthMm / 2
+  // Shift along the face normal. The flat geom is centred at Z=0, so:
+  //   - embossed: protrude outward, but sink the base `embed` mm below the
+  //     surface so the separate body overlaps and the slicer fuses it.
+  //   - through_cut: centre the deep cutter on the face → pierces both sides.
+  //   - engraved: top flush with the surface (+small overcut for a clean break),
+  //     body extends inward by depthMm.
+  let normalShift: number
+  if (op.treatment === 'embossed') {
+    // Sink a thin overlap below the surface so the separate body fuses in the
+    // slicer; keep the bulk of the logo proud of the face.
+    const embed = Math.min(0.2, op.depthMm * 0.25)
+    normalShift = op.depthMm / 2 - embed
+  } else if (isThrough) {
+    normalShift = 0
+  } else {
+    normalShift = -op.depthMm / 2 + 0.1
+  }
 
-  const tx = wx + face.normal[0] * normalShift
-  const ty = wy + face.normal[1] * normalShift
-  const tz = wz + face.normal[2] * normalShift
+  const tx = wx + placeNormal[0] * normalShift
+  const ty = wy + placeNormal[1] * normalShift
+  const tz = wz + placeNormal[2] * normalShift
 
   const placed = transforms.translate([tx, ty, tz], flat as never) as Geom3
 
-  const base = await baseMeshToGeom3(mesh) as Geom3
-  const result =
-    op.treatment === 'engraved' || op.treatment === 'through_cut'
-      ? booleans.subtract(base, placed)
-      : booleans.union(base, placed)
+  if (op.treatment === 'embossed') {
+    // Additive: the logo becomes its own extruder-B body. generate.ts splits
+    // distinct extruders into separate print bodies; the viewer colours B.
+    const logoBody = await geom3ToBaseMesh(placed, 'B')
+    return appendBody(mesh, logoBody)
+  }
 
-  return geom3ToBaseMesh(result, mesh.extruders[0] ?? 'A')
+  // Engrave / through-cut: volumetric subtract on the FULL solid via Manifold.
+  // Boolean output is single-material (the recess is the base colour) → all 'A'.
+  const { booleanSoup } = await import('../manifold-csg')
+  const toolPositions = (await geom3ToBaseMesh(placed)).positions
+  const resultPositions = await booleanSoup(mesh.positions, toolPositions, 'subtract')
+  const triangleCount = resultPositions.length / 9
+  return recomputeMeshDerived({
+    positions: resultPositions,
+    extruders: new Array(triangleCount).fill('A'),
+    triangleCount,
+  })
+}
+
+/** Concatenate a second body's triangles onto the base, preserving per-triangle
+ *  extruder labels, and recompute normals + bbox. */
+function appendBody(base: BaseMesh, body: BaseMesh): BaseMesh {
+  const positions = new Float32Array(base.positions.length + body.positions.length)
+  positions.set(base.positions, 0)
+  positions.set(body.positions, base.positions.length)
+  return recomputeMeshDerived({
+    positions,
+    extruders: [...base.extruders, ...body.extruders],
+    triangleCount: positions.length / 9,
+  })
 }
 
 function makeFrame(normal: [number, number, number]) {

@@ -14,19 +14,21 @@ export interface ApplyEditsResult {
  *  Scale-only edits skip the cap since they're vertex-only and cheap. */
 export const BOOLEAN_TRIANGLE_LIMIT = 50_000
 
-/** Ops that perform CSG (boolean union/subtract) on the base mesh and
- *  therefore go through JSCAD's BSP path. `scale` is excluded — it just
- *  multiplies vertex positions. */
-const CSG_OPS = new Set<string>(['hole', 'add_logo', 'emboss_text', 'jscad_raw'])
+/** Ops that perform CSG through JSCAD's BSP path and therefore can't run on
+ *  large meshes. `scale` is excluded (vertex-only). `add_logo` is excluded too:
+ *  it self-routes — embossed appends a separate body (no boolean), engraved /
+ *  through_cut use the Manifold backend (handles millions of triangles). */
+const CSG_OPS = new Set<string>(['hole', 'emboss_text', 'jscad_raw'])
 
 export async function applyEdits(
   baseMesh: BaseMesh,
   edits: Op[],
   faces: SemanticFace[],
+  logoImageBuffer?: Buffer | null,
 ): Promise<ApplyEditsResult> {
   let mesh = baseMesh
   const warnings: EditWarning[] = []
-  const ctx = { faces }
+  const ctx = { faces, logoImageBuffer }
 
   for (let i = 0; i < edits.length; i++) {
     const edit = edits[i]

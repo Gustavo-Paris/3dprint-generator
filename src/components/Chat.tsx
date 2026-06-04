@@ -40,6 +40,8 @@ type Msg = {
   design?: unknown
   /** Sanity clamps applied to the LLM's output before geometry was built. */
   designAdjustments?: Array<{ field: string; from: number; to: number }>
+  /** Edits the backend skipped or failed (e.g. logo couldn't be applied). */
+  warnings?: Array<{ opIndex: number; op: string; reason: string }>
 }
 
 export type ChatResult =
@@ -145,6 +147,7 @@ export default function Chat({
         mesh_base64: string | null
         design?: unknown
         design_adjustments?: Array<{ field: string; from: number; to: number }>
+        warnings?: Array<{ opIndex: number; op: string; reason: string }>
         meta: {
           kind?: 'hollow_cylinder' | 'flat_plate' | 'disc'
           bbox_mm?: { x: number; y: number; z: number }
@@ -167,6 +170,7 @@ export default function Chat({
           strategy: 'generative',
           design: body.design,
           designAdjustments: body.design_adjustments,
+          warnings: body.warnings,
         },
       ])
       onResult({
@@ -217,6 +221,20 @@ export default function Chat({
                   {m.designAdjustments.map((a, k) => (
                     <li key={k} className="font-mono">
                       <span className="text-gray-500">{a.field}</span>: {a.from} → {a.to}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {m.role === 'assistant' && m.warnings && m.warnings.length > 0 && (
+              <div className="mt-2 max-w-[90%] border-l-2 border-red-400 bg-red-50 px-3 py-2 text-left text-[11px]">
+                <div className="uppercase tracking-wide text-red-700 font-semibold mb-1">
+                  ⚠ Edições não aplicadas
+                </div>
+                <ul className="space-y-1 text-gray-800">
+                  {m.warnings.map((w, k) => (
+                    <li key={k}>
+                      <span className="font-mono text-gray-500">{w.op}</span>: {w.reason}
                     </li>
                   ))}
                 </ul>
