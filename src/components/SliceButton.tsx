@@ -105,6 +105,11 @@ export default function SliceButton({
       >
         {busy ? 'Slicing…' : 'Slice for printing'}
       </button>
+      {busy && (
+        <div className="bg-white border rounded px-3 py-2 text-xs text-gray-600 shadow max-w-xs">
+          Malhas pesadas (logo aplicado) podem levar 1-2 min. Aguarde…
+        </div>
+      )}
       {slicerOk === false && (
         <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded px-3 py-2 text-xs max-w-xs">
           Slicer offline — fatiamento indisponível. Verifique o serviço (SLICER_URL).

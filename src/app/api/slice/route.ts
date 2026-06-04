@@ -7,7 +7,9 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
-export const maxDuration = 180
+// Heavy meshes (700k+ tris) can take ~2 min to slice; keep the route alive
+// longer than the slicer client's 280s abort.
+export const maxDuration = 300
 
 const Body = z.object({
   iterationId: z.string().uuid(),

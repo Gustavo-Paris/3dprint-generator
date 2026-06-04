@@ -69,7 +69,9 @@ export async function checkSlicerHealth(opts: ClientOpts = {}): Promise<SlicerHe
  */
 export async function sliceStl(stl: Uint8Array, opts: ClientOpts = {}): Promise<SliceResult> {
   const fetchImpl = opts.fetchImpl ?? fetch
-  const timeoutMs = opts.timeoutMs ?? 120_000
+  // Heavy imported meshes (700k+ triangles) routinely take 1-2 min to slice on
+  // the remote, plus tens-of-MB upload — 120s aborted them mid-slice (503).
+  const timeoutMs = opts.timeoutMs ?? 280_000
   const stl_base64 = Buffer.from(stl).toString('base64')
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
