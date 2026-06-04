@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const app = express()
-app.use(express.json({ limit: '20mb' }))
+// Real imported meshes (500k–2M triangles) base64 to tens of MB. 20mb rejected
+// them with a 413 before OrcaSlicer ever saw the model.
+app.use(express.json({ limit: '100mb' }))
 
 const ORCA_BIN = process.env.ORCA_BIN ?? '/opt/orca/orca-extracted/AppRun'
 const PROFILES_DIR = '/app/profiles'
@@ -43,19 +45,28 @@ app.post('/slice', async (req, res) => {
 
   const work = mkdtempSync(join(tmpdir(), 'slice-'))
   try {
-    const stlPath = join(work, 'in.stl')
+    // Detect the model format by magic bytes: a 3MF is a zip ("PK"), anything
+    // else is treated as STL. OrcaSlicer infers the loader from the extension,
+    // so a 3MF written as `in.stl` fails with "Loading of a model file failed".
+    const modelBytes = Buffer.from(stl_base64, 'base64')
+    const is3mf = modelBytes[0] === 0x50 && modelBytes[1] === 0x4b
+    const inPath = join(work, is3mf ? 'in.3mf' : 'in.stl')
     const outPath = join(work, 'out.3mf')
-    writeFileSync(stlPath, Buffer.from(stl_base64, 'base64'))
+    writeFileSync(inPath, modelBytes)
 
+    // OrcaSlicer rejects a 3MF input when --load-filament-ids is set
+    // ("can not load 3mf when set loaded_filament_ids or clone_objects"), so
+    // omit it for 3MF — the loaded filament is used by default (single-material
+    // slice; multi-colour stays the Download-3MF path).
     const result = spawnSync(ORCA_BIN, [
       '--debug', '5',
       '--no-check',
       '--slice', '0',
       '--load-settings', `${PROFILES_DIR}/machine_h2d_pla.json;${PROFILES_DIR}/process_h2d_pla_0.2mm.json`,
       '--load-filaments', `${PROFILES_DIR}/filament_generic_pla.json`,
-      '--load-filament-ids', '1',
+      ...(is3mf ? [] : ['--load-filament-ids', '1']),
       '--export-3mf', outPath,
-      stlPath,
+      inPath,
     ], {
       encoding: 'utf8',
       env: {

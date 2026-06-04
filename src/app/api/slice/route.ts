@@ -30,9 +30,27 @@ export async function POST(req: Request) {
     .limit(1)
   if (!row) return new Response('Not found', { status: 404 })
 
+  // Flatten multi-body meshes to a single-material STL for slicing. A multi-body
+  // emboss arrives as a 3MF (zip): OrcaSlicer can't load it under an .stl name,
+  // and its per-body extruder mapping fights a single-filament profile. Slicing
+  // is single-material anyway (multi-colour is the separate Download-3MF path),
+  // so flatten all bodies into one STL the slicer loads cleanly. (Needs the
+  // slicer's raised body limit — a 700k-tri STL is tens of MB.)
+  let meshBytes = Buffer.from(stlBase64, 'base64')
+  if (meshBytes[0] === 0x50 && meshBytes[1] === 0x4b) {
+    try {
+      const { loadBaseMeshFromBytes } = await import('@/lib/import/load-base-mesh')
+      const { serializeBinarySTL } = await import('@/lib/stl/serialize')
+      const mesh = await loadBaseMeshFromBytes(new Uint8Array(meshBytes))
+      meshBytes = Buffer.from(serializeBinarySTL(Array.from(mesh.positions)))
+    } catch (e) {
+      return new Response(`Failed to convert 3MF for slicing: ${(e as Error).message}`, { status: 422 })
+    }
+  }
+
   let result
   try {
-    result = await sliceStl(Buffer.from(stlBase64, 'base64'))
+    result = await sliceStl(meshBytes)
   } catch (e) {
     if (e instanceof SlicerError) {
       // offline/timeout → 503 (slicer unavailable); slicer-side failure → 502.
