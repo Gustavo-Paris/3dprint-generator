@@ -137,17 +137,26 @@ export async function applyAddLogo(
     return appendBody(mesh, logoBody)
   }
 
-  // Engrave / through-cut: volumetric subtract on the FULL solid via Manifold.
-  // Boolean output is single-material (the recess is the base colour) → all 'A'.
+  // Engrave / through-cut: volumetric subtract on the FULL solid via Manifold
+  // (handles millions of triangles where JSCAD OOMs).
   const { booleanSoup } = await import('../manifold-csg')
-  const toolPositions = (await geom3ToBaseMesh(placed)).positions
-  const resultPositions = await booleanSoup(mesh.positions, toolPositions, 'subtract')
-  const triangleCount = resultPositions.length / 9
-  return recomputeMeshDerived({
-    positions: resultPositions,
-    extruders: new Array(triangleCount).fill('A'),
-    triangleCount,
+  const toolBody = await geom3ToBaseMesh(placed, 'B')
+  const carved = await booleanSoup(mesh.positions, toolBody.positions, 'subtract')
+  const carvedCount = carved.length / 9
+  const carvedMesh = recomputeMeshDerived({
+    positions: carved,
+    extruders: new Array(carvedCount).fill('A') as Array<'A' | 'B'>,
+    triangleCount: carvedCount,
   })
+
+  // through_cut: a clean silhouette cut clear through — no fill.
+  if (isThrough) return carvedMesh
+
+  // engraved: fill the recess with a colour-B inlay. A same-colour groove is
+  // invisible in the viewer (and barely readable on a single-colour print); the
+  // inlay makes the debossed logo a distinct colour, sitting flush in the
+  // pocket the subtract just carved (the cutter exactly fills its own cavity).
+  return appendBody(carvedMesh, toolBody)
 }
 
 /** Concatenate a second body's triangles onto the base, preserving per-triangle

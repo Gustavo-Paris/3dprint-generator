@@ -42,12 +42,19 @@ describe('applyAddLogo', () => {
     expect(out.bbox.size[2]).toBeLessThan(30.6)
   })
 
-  it('engraved reduces or keeps bbox', async () => {
+  it('engraved carves the host and fills the recess with a colour-B inlay', async () => {
     const topFace = faces.findIndex((f) => Math.abs(f.normal[2] - 1) < 0.01)
     const out = await applyAddLogo(cube, {
       op: 'add_logo', faceId: topFace, imageUrl: 'http://mock/logo.png',
       sizeMm: 10, depthMm: 0.6, treatment: 'engraved', offsetMm: [0, 0],
     }, faces)
-    expect(out.bbox.size[2]).toBeLessThanOrEqual(30.01)
+    // Inlay = host carved (A) + logo filling the pocket (B), so the recessed
+    // logo is a distinct colour and actually visible.
+    const extruders = new Set(out.extruders)
+    expect(extruders.has('A')).toBe(true)
+    expect(extruders.has('B')).toBe(true)
+    // It sits flush in the surface — not raised like an emboss: Z stays ~30mm.
+    expect(out.bbox.size[2]).toBeGreaterThan(29.5)
+    expect(out.bbox.size[2]).toBeLessThan(30.3)
   })
 })
