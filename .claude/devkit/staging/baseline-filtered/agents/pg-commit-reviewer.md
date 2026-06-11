@@ -1,1 +1,0 @@
-/Users/gustavoparis/.claude/devkit/source/pg-baseline/0.13.1/agents/pg-commit-reviewer.md
