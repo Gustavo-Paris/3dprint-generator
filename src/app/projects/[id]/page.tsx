@@ -3,6 +3,7 @@ import { db } from '@/db'
 import { projects, iterations } from '@/db/schema'
 import { and, asc, eq } from 'drizzle-orm'
 import { notFound, redirect } from 'next/navigation'
+import { isUuid } from '@/lib/validation/uuid'
 import ProjectWorkspace from '@/components/ProjectWorkspace'
 
 export default async function ProjectPage({
@@ -13,6 +14,10 @@ export default async function ProjectPage({
   const { id } = await params
   const session = await auth()
   if (!session?.user?.id) redirect('/sign-in')
+
+  // `projects.id` is a uuid column — a non-uuid param makes Postgres throw
+  // (500 + SQL leak). Treat malformed ids as not-found.
+  if (!isUuid(id)) notFound()
 
   const [project] = await db
     .select()
