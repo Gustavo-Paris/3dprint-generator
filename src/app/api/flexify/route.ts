@@ -16,6 +16,8 @@ import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { flexify } from '@/lib/flexify'
+import { apiError } from '@/lib/http/api-error'
+import { createRequestLogger } from '@/lib/log'
 import { put } from '@vercel/blob'
 import { and, desc, eq } from 'drizzle-orm'
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
@@ -82,11 +84,12 @@ async function readMeshBytes(url: string): Promise<Uint8Array> {
 }
 
 export async function POST(req: Request) {
+  const log = createRequestLogger('flexify')
   const session = await auth()
-  if (!session?.user?.id) return new Response('Unauthenticated', { status: 401 })
+  if (!session?.user?.id) return apiError(401, 'unauthenticated', 'Faça login para continuar.')
 
   const parsed = Body.safeParse(await req.json())
-  if (!parsed.success) return new Response('Invalid body', { status: 400 })
+  if (!parsed.success) return apiError(400, 'invalid_body', 'Requisição inválida.')
   const { projectId, meshUrl } = parsed.data
 
   const [project] = await db
@@ -94,7 +97,7 @@ export async function POST(req: Request) {
     .from(projects)
     .where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id)))
     .limit(1)
-  if (!project) return new Response('Not found', { status: 404 })
+  if (!project) return apiError(404, 'not_found', 'Projeto não encontrado.')
 
   // Resolve source mesh ONLY from this project's own iterations, so the URL is
   // always one the server itself issued. This is the primary defense against
@@ -113,7 +116,7 @@ export async function POST(req: Request) {
   if (meshUrl) {
     if (!ownMeshUrls.has(meshUrl)) {
       // Reject any URL we didn't issue for this project — closes SSRF / traversal.
-      return new Response('meshUrl does not belong to this project', { status: 403 })
+      return apiError(403, 'forbidden_mesh', 'A malha não pertence a este projeto.')
     }
     sourceMeshUrl = meshUrl
   } else {
@@ -123,7 +126,7 @@ export async function POST(req: Request) {
     sourceMeshUrl = lastReady?.meshBlobUrl ?? null
   }
   if (!sourceMeshUrl) {
-    return new Response('No source mesh: generate or upload a mesh first', { status: 400 })
+    return apiError(400, 'no_source_mesh', 'Gere ou envie uma malha antes de articular.')
   }
 
   const [iteration] = await db
@@ -146,16 +149,12 @@ export async function POST(req: Request) {
     bytes = result.bytes
     report = result.report
   } catch (err) {
-    const e = err as Error
     // Detail stays server-side (log + DB row); the client gets a generic message.
-    console.error('[flexify] failed:', e.stack ?? e.message)
+    log.error('flexify failed', err, { projectId, iterationId: iteration.id })
     await db.update(iterations)
-      .set({ status: 'failed', error: `flexify failed: ${e.message}` })
+      .set({ status: 'failed', error: `flexify failed: ${(err as Error).message}` })
       .where(eq(iterations.id, iteration.id))
-    return Response.json(
-      { error: 'Flexify failed to process the mesh.', iteration_id: iteration.id },
-      { status: 500 },
-    )
+    return apiError(500, 'flexify_failed', 'Falha ao processar a malha.', { iteration_id: iteration.id })
   }
 
   const meshUrlOut = await persistMesh(bytes, session.user.id, projectId, iteration.id)
