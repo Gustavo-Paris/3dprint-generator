@@ -1,4 +1,5 @@
 import { auth } from '@/auth'
+import { apiError } from '@/lib/http/api-error'
 import { put } from '@vercel/blob'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -18,23 +19,23 @@ const MESH_TYPES = [
 
 export async function POST(req: Request) {
   const session = await auth()
-  if (!session?.user?.id) return new Response('Unauthenticated', { status: 401 })
+  if (!session?.user?.id) return apiError(401, 'unauthenticated', 'Faça login para continuar.')
 
   const form = await req.formData()
   const file = form.get('file')
-  if (!(file instanceof File)) return new Response('No file', { status: 400 })
+  if (!(file instanceof File)) return apiError(400, 'no_file', 'Nenhum arquivo enviado.')
 
   const isMesh = MESH_TYPES.includes(file.type) || file.name.toLowerCase().endsWith('.3mf')
   const isImage = IMAGE_TYPES.includes(file.type)
 
   if (!isMesh && !isImage) {
-    return new Response(`Unsupported type ${file.type}`, { status: 415 })
+    return apiError(415, 'unsupported_type', 'Tipo de arquivo não suportado.')
   }
 
   const limit = isMesh ? MAX_BYTES_MESH : MAX_BYTES_IMAGE
   if (file.size > limit) {
     const mb = (limit / 1024 / 1024).toFixed(0)
-    return new Response(`File too large (>${mb}MB)`, { status: 413 })
+    return apiError(413, 'file_too_large', `Arquivo muito grande (>${mb}MB).`)
   }
 
   const ext = isMesh ? '3mf'

@@ -6,13 +6,14 @@
  * it uniformly; checkSlicerHealth never throws.
  */
 import { auth } from '@/auth'
+import { apiError } from '@/lib/http/api-error'
 import { checkSlicerHealth } from '@/lib/slicer/client'
 
 export const runtime = 'nodejs'
 
 export async function GET() {
   const session = await auth()
-  if (!session?.user?.id) return new Response('Unauthenticated', { status: 401 })
+  if (!session?.user?.id) return apiError(401, 'unauthenticated', 'Faça login para continuar.')
 
   // Surface only what the client needs (ok + reason). orca binary path and
   // profiles dir stay server-side — no need to expose internal FS layout.
