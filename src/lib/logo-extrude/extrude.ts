@@ -28,6 +28,8 @@ import sharp from 'sharp'
 // real modules nested under `.default`. Under CommonJS interop (tsx, ts-node)
 // it gets flattened. We accept either shape.
 import * as jscadNs from '@jscad/modeling'
+import type Geom2 from '@jscad/modeling/src/geometries/geom2/type'
+import type Geom3 from '@jscad/modeling/src/geometries/geom3/type'
 import { serializeBinarySTL } from '@/lib/stl/serialize'
 
 type JscadShape = {
@@ -139,10 +141,11 @@ export interface LogoExtrudeOptions {
 
 export interface LogoExtrudeResult {
   stl: Uint8Array
-  logo2DOuter?: any
-  logo2D?: any
-  logo2DOuters?: any[]
-  geom3?: any
+  logo2DOuter?: Geom2
+  logo2D?: Geom2
+  logo2DOuters?: Geom2[]
+  /** The centred, scaled standing solid. Always set by `extrudeLogo`. */
+  geom3: Geom3
   meta: {
     subpaths: number
     outers: number
@@ -442,8 +445,8 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   //   - channels_only: each HOLE on its own → the negative space inside the
   //     letter outlines. Used by the `channels` treatment to engrave just
   //     the inner counters while leaving strokes at plate level.
-  const shape2Ds: any[] = []
-  const logo2DGeoms: any[] = []
+  const shape2Ds: Geom2[] = []
+  const logo2DGeoms: Geom2[] = []
   let droppedPieces = 0
 
   if (mode === 'channels_only') {
@@ -500,7 +503,7 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
       }
       let shape2D: ReturnType<typeof primitives.polygon> = outerPoly
       if (holes.length > 0) {
-        const bridgeGeoms: any[] = []
+        const bridgeGeoms: Geom2[] = []
         const holeGeom2s = holes.map((h) => {
           const holePoly = primitives.polygon({ points: ensureWinding(h, true) })
           if (addBridges) {
@@ -579,7 +582,7 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
             shape2Ds.reduce((acc, s2d) => {
               acc.push(...geometries.geom2.toSides(s2d))
               return acc
-            }, [] as any[]),
+            }, [] as ReturnType<typeof geometries.geom2.toSides>),
           ),
         )
 
@@ -648,7 +651,7 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   const outerCount = infos.filter((i) => i.isOuter).length
 
   // Build the 2D logo footprint (union of scaled outer contours)
-  const logo2DOuterGeoms: any[] = []
+  const logo2DOuterGeoms: Geom2[] = []
   if (mode !== 'channels_only') {
     for (const inf of infos) {
       if (!inf.isOuter) continue
@@ -692,9 +695,9 @@ function generateTexturePattern(
   cx: number,
   cy: number,
   maxDim: number
-): any {
+): Geom2 {
   const range = maxDim * 0.7
-  const shapes: any[] = []
+  const shapes: Geom2[] = []
 
   if (texture === 'stripes') {
     const period = 4.0 * scaleFactor

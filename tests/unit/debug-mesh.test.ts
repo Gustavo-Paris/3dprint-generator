@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import { parseBinarySTL } from '@/lib/jscad/runner'
 import { extrudeLogo } from '@/lib/logo-extrude/extrude'
 import * as jscadNs from '@jscad/modeling'
-import type { Design, LogoSpec } from '@/lib/design/schema'
+import type { LogoSpec } from '@/lib/design/schema'
+import type { Geom3 } from '@jscad/modeling/src/geometries/geom3'
 import { serializeBinarySTL } from '@/lib/stl/serialize'
 
 type JscadShape = {
@@ -17,10 +18,9 @@ type JscadShape = {
 const jscad: JscadShape =
   ((jscadNs as unknown as { default?: JscadShape }).default ??
     (jscadNs as unknown as JscadShape))
-const { primitives, booleans, geometries, transforms, expansions, extrusions } = jscad
-const { extrudeLinear } = extrusions
+const { primitives, booleans, geometries, transforms } = jscad
 
-function geom3ToPositions(g: any): Float32Array {
+function geom3ToPositions(g: Geom3): Float32Array {
   const polys = geometries.geom3.toPolygons(g)
   const out: number[] = []
   for (const poly of polys) {
@@ -34,12 +34,12 @@ function geom3ToPositions(g: any): Float32Array {
   return new Float32Array(out)
 }
 
-function geom3ToStl(g: any): Uint8Array {
+function geom3ToStl(g: Geom3): Uint8Array {
   const positions = geom3ToPositions(g)
   return serializeBinarySTL(Array.from(positions))
 }
 
-function trianglesToGeom3(flatTriangles: number[] | Float32Array): any {
+function trianglesToGeom3(flatTriangles: number[] | Float32Array): Geom3 {
   type Vec3 = [number, number, number]
   const polygons: Array<{ vertices: Vec3[] }> = []
   for (let i = 0; i < flatTriangles.length; i += 9) {
@@ -51,9 +51,7 @@ function trianglesToGeom3(flatTriangles: number[] | Float32Array): any {
       ],
     })
   }
-  return geometries.geom3.create(
-    polygons as any,
-  )
+  return geometries.geom3.create(polygons)
 }
 
 function alignFlatLogo(
@@ -99,12 +97,12 @@ function alignFlatLogo(
 }
 
 function alignFlatLogoGeom3(
-  logoGeom3: any,
+  logoGeom3: Geom3,
   thicknessMm: number,
   logo: LogoSpec,
   slabT: number,
   overshoot: number
-): any {
+): Geom3 {
   const topZ = thicknessMm / 2
   const bottomZ = -thicknessMm / 2
   const isBottom = logo.position === 'bottom_face'
@@ -127,7 +125,7 @@ function alignFlatLogoGeom3(
   return transforms.translate([0, 0, dzMid], aligned)
 }
 
-function checkMeshStats(label: string, g: any) {
+function checkMeshStats(label: string, g: Geom3) {
   const polys = geometries.geom3.toPolygons(g)
   const pos: number[] = []
   for (const poly of polys) {
@@ -224,7 +222,7 @@ describe('debug-mesh', () => {
       texture: 'none',
     })
 
-    let solid = primitives.roundedCuboid({ size: [50, 50, thicknessMm], roundRadius: 1.5 }) as any
+    let solid: Geom3 = primitives.roundedCuboid({ size: [50, 50, thicknessMm], roundRadius: 1.5 })
     solid = transforms.translate([0, 0, -thicknessMm / 2], solid)
 
     const logoGeom3 = alignFlatLogoGeom3(logoResult.geom3, thicknessMm, { treatment: 'through_cut', position: 'top_face', sizeRatio: 0.8, extruder: 'B', addBridges: false, texture: 'none' }, slabT, overshoot)
@@ -232,7 +230,7 @@ describe('debug-mesh', () => {
     checkMeshStats('Solid Plate (before)', solid)
     checkMeshStats('LogoGeom3 (before)', logoGeom3)
 
-    const result = booleans.subtract(solid, logoGeom3) as any
+    const result = booleans.subtract(solid, logoGeom3)
     checkMeshStats('Subtracted Result (geom3)', result)
 
     // Export to STL and check boundary edges of the final STL triangles
@@ -270,7 +268,7 @@ describe('debug-mesh', () => {
 
     let stlBoundaryEdges = 0
     let stlNonManifoldEdges = 0
-    for (const [key, count] of stlEdges.entries()) {
+    for (const count of stlEdges.values()) {
       if (count === 1) {
         stlBoundaryEdges++
       } else if (count > 2) {
@@ -282,9 +280,9 @@ describe('debug-mesh', () => {
     // --- Old Triangle Soup Method ---
     // This simulates the current generate.ts pipeline:
     const logoTrisOld = parseBinarySTL(logoResult.stl)
-    const windingOld = alignFlatLogo(logoTrisOld, thicknessMm, { treatment: 'through_cut', position: 'top_face', sizeRatio: 0.8 } as any, slabT, overshoot)
+    const windingOld = alignFlatLogo(logoTrisOld, thicknessMm, { treatment: 'through_cut', position: 'top_face', sizeRatio: 0.8, extruder: 'B', addBridges: false, texture: 'none' }, slabT, overshoot)
     const logoGeom3Old = trianglesToGeom3(windingOld)
-    const resultOld = booleans.subtract(solid, logoGeom3Old) as any
+    const resultOld = booleans.subtract(solid, logoGeom3Old)
     const stlBytesOld = geom3ToStl(resultOld)
     const stlTrisOld = parseBinarySTL(stlBytesOld)
 
@@ -319,7 +317,7 @@ describe('debug-mesh', () => {
 
     let stlBoundaryEdgesOld = 0
     let stlNonManifoldEdgesOld = 0
-    for (const [key, count] of stlEdgesOld.entries()) {
+    for (const count of stlEdgesOld.values()) {
       if (count === 1) {
         stlBoundaryEdgesOld++
       } else if (count > 2) {

@@ -39,7 +39,7 @@ vi.mock('@/lib/logo-extrude/extrude', () => ({
     for (const [a, b, c] of faces) {
       flat.push(...verts[a], ...verts[b], ...verts[c])
     }
-    const { primitives, transforms } = require('@jscad/modeling')
+    const { primitives, transforms } = await import('@jscad/modeling')
     const logo2DOuters = [
       primitives.roundedRectangle({ size: [W / 2, W / 2], roundRadius: 1, center: [-W / 4, 0] }),
       primitives.roundedRectangle({ size: [W / 2, W / 2], roundRadius: 1, center: [W / 4, 0] })

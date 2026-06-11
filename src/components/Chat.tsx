@@ -193,6 +193,7 @@ export default function Chat({
           <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
             {m.imageUrl && (
               <div className={m.role === 'user' ? 'inline-block' : ''}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- dynamic user-uploaded URL (Vercel Blob or local /uploads); host not in images.remotePatterns, next/image would throw at runtime */}
                 <img
                   src={m.imageUrl}
                   alt="attached"
@@ -335,6 +336,7 @@ export default function Chat({
             attachedImage.carried ? 'bg-slate-50' : 'bg-emerald-50'
           }`}
         >
+          {/* eslint-disable-next-line @next/next/no-img-element -- dynamic user-uploaded URL (Vercel Blob or local /uploads); host not in images.remotePatterns, next/image would throw at runtime */}
           <img
             src={attachedImage.url}
             alt="attached preview"

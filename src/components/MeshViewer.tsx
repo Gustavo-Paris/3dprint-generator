@@ -31,6 +31,7 @@ function FitCameraToObject({
   }
   const lastFitKey = useRef<string | null>(null)
 
+  // eslint-disable-next-line react-hooks/immutability -- r3f camera is an external imperative three.js object; mutating it inside an effect is the canonical fit-to-bbox pattern
   useEffect(() => {
     if (lastFitKey.current === fitKey) return
     lastFitKey.current = fitKey
@@ -51,6 +52,7 @@ function FitCameraToObject({
     const distance = (maxDim / 2 / Math.tan(fov / 2)) * 1.4
     const dir = new THREE.Vector3(1, 0.85, 1).normalize()
     camera.position.copy(center).addScaledVector(dir, distance)
+    // eslint-disable-next-line react-hooks/immutability -- near/far must be set imperatively on the r3f-managed camera; there is no declarative alternative for re-framing
     camera.near = Math.max(0.001, distance / 1000)
     camera.far = Math.max(2000, distance * 50)
     camera.updateProjectionMatrix()

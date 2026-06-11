@@ -61,7 +61,10 @@ export async function flexify(
   // tags the whole body with one extruder; per-triangle painting is out of scope).
   const meshBodies: MeshBodyData[] = bodies.map((b) => {
     let aCount = 0, bCount = 0
-    for (const e of b.extruders) e === 'A' ? aCount++ : bCount++
+    for (const e of b.extruders) {
+      if (e === 'A') aCount++
+      else bCount++
+    }
     return {
       positions: b.positions,
       extruder: aCount >= bCount ? 'A' : 'B',

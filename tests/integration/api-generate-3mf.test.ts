@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { db } from '@/db'
-import { users, projects, iterations } from '@/db/schema'
+import { users, projects } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import fs from 'fs'
 import path from 'path'

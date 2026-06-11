@@ -62,10 +62,10 @@ export default function ProjectWorkspace({
   useEffect(() => {
     if (!lastReady) return
     let cancelled = false
-    setError(null)
-    setValidity(null)
     ;(async () => {
       try {
+        setError(null)
+        setValidity(null)
         if (lastReady.strategy === 'parametric' && lastReady.jscadCode) {
           const r = await runInWorker({ type: 'jscad', code: lastReady.jscadCode })
           if (cancelled) return

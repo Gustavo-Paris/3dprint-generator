@@ -544,12 +544,6 @@ async function applyBookmarkLogo(
     texture: d.logo.texture,
   })
 
-  const topZ = d.thicknessMm / 2
-  const dzMid =
-    d.logo.treatment === 'through_cut' ? 0
-    : d.logo.treatment === 'embossed'  ? topZ - overshoot + slabT / 2
-    : /* engraved */                     topZ + overshoot / 2 - slabT / 2
-
   const padding = Math.max(d.widthMm * 0.2, 5)
   const yOffset = d.heightMm / 2 - logoHeight / 2 - padding
 
@@ -805,7 +799,8 @@ async function buildDisc(
 
 async function applyDiscLogo(
   solid: Geom3,
-  d: Extract<Design, { kind: 'disc' }>,
+  // Structural subset shared by disc and pin — only these fields are read.
+  d: Pick<Extract<Design, { kind: 'disc' }>, 'logo' | 'thicknessMm' | 'diameterMm'>,
   imageBuffer: Buffer,
 ): Promise<{ solid: Geom3; logo?: Geom3 }> {
   if (!d.logo) return { solid }
@@ -873,7 +868,7 @@ async function buildPin(
 
   let logo: Geom3 | undefined
   if (d.logo && ctx.logoImageBuffer) {
-    const res = await applyDiscLogo(solid, d as any, ctx.logoImageBuffer)
+    const res = await applyDiscLogo(solid, d, ctx.logoImageBuffer)
     solid = res.solid
     logo = res.logo
   }
@@ -1043,11 +1038,6 @@ function geom3ToPositions(g: Geom3): Float32Array {
   return new Float32Array(out)
 }
 
-function geom3ToStl(g: Geom3): Uint8Array {
-  const positions = geom3ToPositions(g)
-  return serializeBinarySTL(Array.from(positions))
-}
-
 async function buildCustomKeychain(
   d: Extract<Design, { kind: 'custom_keychain' }>,
   ctx: GenerateContext,
@@ -1148,7 +1138,7 @@ async function buildCustomKeychain(
   // Center the extruded base around Z=0 so logo placement aligns correctly
   solid = transforms.translate([0, 0, -d.thicknessMm / 2], solid) as Geom3
 
-  let logoGeom3 = alignFlatLogoGeom3(logoResult.geom3, d.thicknessMm, d.logo, slabT, overshoot)
+  let logoGeom3: Geom3 | undefined = alignFlatLogoGeom3(logoResult.geom3, d.thicknessMm, d.logo, slabT, overshoot)
 
   if (d.logo.treatment === 'engraved') {
     const pocketSolid = booleans.subtract(solid, logoGeom3) as Geom3
@@ -1157,7 +1147,7 @@ async function buildCustomKeychain(
     logoGeom3 = inlay
   } else if (d.logo.treatment === 'through_cut') {
     solid = booleans.subtract(solid, logoGeom3) as Geom3
-    logoGeom3 = undefined as any
+    logoGeom3 = undefined
   }
 
   // Create and add the keyring loop AFTER the logo has been subtracted.
