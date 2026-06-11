@@ -3,11 +3,12 @@ import { db } from '@/db'
 import { projects } from '@/db/schema'
 import { desc, eq } from 'drizzle-orm'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { createProject } from '@/actions/projects'
 
 export default async function Home() {
   const session = await auth()
-  if (!session?.user?.id) return null
+  if (!session?.user?.id) redirect('/sign-in')
 
   const myProjects = await db
     .select()

@@ -2,7 +2,7 @@ import { auth } from '@/auth'
 import { db } from '@/db'
 import { projects, iterations } from '@/db/schema'
 import { and, asc, eq } from 'drizzle-orm'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import ProjectWorkspace from '@/components/ProjectWorkspace'
 
 export default async function ProjectPage({
@@ -12,7 +12,7 @@ export default async function ProjectPage({
 }) {
   const { id } = await params
   const session = await auth()
-  if (!session?.user?.id) return null
+  if (!session?.user?.id) redirect('/sign-in')
 
   const [project] = await db
     .select()
