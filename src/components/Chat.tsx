@@ -1,5 +1,6 @@
 'use client'
 import { useRef, useState } from 'react'
+import { resultLabel } from '@/lib/chat/result-label'
 
 /** One-line human summary of a Design JSON for the chat header. */
 function designSummary(design: unknown): string {
@@ -148,19 +149,12 @@ export default function Chat({
         design?: unknown
         design_adjustments?: Array<{ field: string; from: number; to: number }>
         warnings?: Array<{ opIndex: number; op: string; reason: string }>
-        meta: {
+        meta?: {
           kind?: 'hollow_cylinder' | 'flat_plate' | 'disc'
           bbox_mm?: { x: number; y: number; z: number }
         }
       }
-      const bb = body.meta.bbox_mm
-      const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
-      const labelByKind: Record<string, string> = {
-        hollow_cylinder: `Porta-lata / sleeve${dims}`,
-        flat_plate: `Placa / chaveiro${dims}`,
-        disc: `Disco / medalha${dims}`,
-      }
-      const label = (body.meta.kind && labelByKind[body.meta.kind]) ?? `Generated${dims}`
+      const label = resultLabel(body.meta)
       setMessages((m) => [
         ...m,
         {
