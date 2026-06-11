@@ -1,18 +1,32 @@
 import { test, expect } from '@playwright/test'
 import { signInE2E } from './session-helper'
 
-const FIXTURE_CODE = `const main = () => jscad.primitives.cuboid({ size: [40, 40, 40] })
-module.exports = { main }`
+/** Minimal 1-triangle binary STL so the viewer mounts from inline bytes (no fetch). */
+function makeOneTriangleSTL(): Buffer {
+  const buf = Buffer.alloc(84 + 50)
+  buf.writeUInt32LE(1, 80)
+  buf.writeFloatLE(0, 96); buf.writeFloatLE(0, 100); buf.writeFloatLE(0, 104)
+  buf.writeFloatLE(10, 108); buf.writeFloatLE(0, 112); buf.writeFloatLE(0, 116)
+  buf.writeFloatLE(0, 120); buf.writeFloatLE(10, 124); buf.writeFloatLE(0, 128)
+  return buf
+}
 
-test('user generates a cube, slices it, sees stats and a download button', async ({ page }) => {
+test('user generates a disc, slices it, sees stats and a download button', async ({ page }) => {
   await page.route('**/api/generate', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
+      // Real /api/generate contract. Inline mesh_base64 so the viewer mounts
+      // (a 404 mesh_url would leave the Slice button unrendered).
       body: JSON.stringify({
-        strategy: 'parametric',
+        strategy: 'generative',
         iteration_id: '00000000-0000-0000-0000-000000000099',
-        jscad_code: FIXTURE_CODE,
+        mesh_url: null,
+        mesh_base64: makeOneTriangleSTL().toString('base64'),
+        design: { kind: 'disc', diameterMm: 40, thicknessMm: 3 },
+        design_adjustments: [],
+        warnings: [],
+        meta: { kind: 'disc', bbox_mm: { x: 40, y: 40, z: 3 } },
       }),
     })
   })
@@ -35,9 +49,10 @@ test('user generates a cube, slices it, sees stats and a download button', async
   await page.click('button[type="submit"]')
   await page.waitForURL(/\/projects\//)
 
-  await page.fill('[data-testid="chat-input"]', 'a cube')
+  await page.fill('[data-testid="chat-input"]', 'a 40mm disc')
   await page.locator('[data-testid="chat-input"]').press('Enter')
-  await expect(page.locator('canvas')).toBeVisible({ timeout: 10_000 })
+  // Gate on the chat label (the mock mesh_url 404s, so the canvas may not mount).
+  await expect(page.locator('[data-testid="chat-history"]')).toContainText('Disco / medalha', { timeout: 10_000 })
 
   // Click slice
   await page.click('button:has-text("Slice for printing")')

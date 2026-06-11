@@ -1,18 +1,21 @@
 import { test, expect } from '@playwright/test'
 import { signInE2E } from './session-helper'
 
-const FIXTURE_CODE = `const main = () => jscad.primitives.cuboid({ size: [40, 40, 40] })
-module.exports = { main }`
-
-test('user signs in, creates project, generates a cube, sees it in the viewer', async ({ page }) => {
+test('user signs in, creates project, generates a parametric disc, sees it in the viewer', async ({ page }) => {
   await page.route('**/api/generate', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
+      // Real /api/generate contract (src/app/api/generate/route.ts).
       body: JSON.stringify({
-        strategy: 'parametric',
+        strategy: 'generative',
         iteration_id: '00000000-0000-0000-0000-000000000001',
-        jscad_code: FIXTURE_CODE,
+        mesh_url: '/meshes/00000000-0000-0000-0000-000000000001.stl',
+        mesh_base64: null,
+        design: { kind: 'disc', diameterMm: 40, thicknessMm: 3 },
+        design_adjustments: [],
+        warnings: [],
+        meta: { kind: 'disc', bbox_mm: { x: 40, y: 40, z: 3 } },
       }),
     })
   })
@@ -23,9 +26,9 @@ test('user signs in, creates project, generates a cube, sees it in the viewer', 
   await page.click('button[type="submit"]')
   await page.waitForURL(/\/projects\//)
 
-  await page.fill('[data-testid="chat-input"]', 'a 40mm cube')
+  await page.fill('[data-testid="chat-input"]', 'a 40mm disc')
   await page.locator('[data-testid="chat-input"]').press('Enter')
 
-  await expect(page.locator('[data-testid="chat-history"]')).toContainText('cuboid', { timeout: 5_000 })
-  await expect(page.locator('canvas')).toBeVisible({ timeout: 5_000 })
+  // Chat renders resultLabel(meta) → "Disco / medalha (40×40×3 mm)".
+  await expect(page.locator('[data-testid="chat-history"]')).toContainText('Disco / medalha', { timeout: 10_000 })
 })

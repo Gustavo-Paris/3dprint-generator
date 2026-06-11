@@ -31,12 +31,17 @@ test('user uploads image with trophy keyword → renders generated trophy with b
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
+      // Real /api/generate contract: meta = { kind?, bbox_mm? }. A Meshy/freeform
+      // mesh has no parametric `kind`, so resultLabel(meta) renders "Generated".
       body: JSON.stringify({
         strategy: 'generative',
         iteration_id: '00000000-0000-0000-0000-000000000077',
         mesh_url: null,
         mesh_base64: makeOneTriangleSTL().toString('base64'),
-        meta: { task_id: 'mock_img_task', took_ms: 234567, base_mode: 'with_base' },
+        design: { kind: 'freeform', prompt: 'troféu', sourceImageUrl: '/uploads/mock-logo.png' },
+        design_adjustments: [],
+        warnings: [],
+        meta: {},
       }),
     })
   })
@@ -65,12 +70,12 @@ test('user uploads image with trophy keyword → renders generated trophy with b
   await page.fill('[data-testid="chat-input"]', 'troféu da logo da empresa')
   await page.locator('[data-testid="chat-input"]').press('Enter')
 
-  // Assistant response should mention "trophy base" or similar
-  await expect(page.locator('[data-testid="chat-history"]')).toContainText(/trophy base/i, {
+  // Generative result with no parametric kind → resultLabel(meta) renders "Generated".
+  await expect(page.locator('[data-testid="chat-history"]')).toContainText(/generated/i, {
     timeout: 10_000,
   })
-  // Strategy badge meshy should appear
+  // Strategy badge meshy should appear (Chat.tsx, strategy === 'generative').
   await expect(page.locator('[data-testid="chat-history"]')).toContainText(/meshy/i)
-  // Canvas should render the mesh
+  // Canvas should render the inline mesh_base64 STL (no network fetch).
   await expect(page.locator('canvas')).toBeVisible({ timeout: 10_000 })
 })
