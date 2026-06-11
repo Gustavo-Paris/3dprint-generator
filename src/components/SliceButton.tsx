@@ -1,8 +1,22 @@
 'use client'
 import { useEffect, useState } from 'react'
 
-type SliceMeta = { print_time_min: number | null; filament_g: number | null }
+type SliceMeta = {
+  print_time_min: number | null
+  filament_g: number | null
+  filament_m?: number | null
+}
 type SliceResponse = { url: string | null; inline_base64: string | null; meta: SliceMeta }
+
+export function fmtPrintTime(v: number | null | undefined): string {
+  return v != null ? `${v.toFixed(0)} min` : '—'
+}
+export function fmtFilament(v: number | null | undefined): string {
+  return v != null ? `${v.toFixed(1)} g` : '—'
+}
+export function fmtFilamentM(v: number | null | undefined): string {
+  return v != null ? `${v.toFixed(2)} m` : '—'
+}
 
 export default function SliceButton({
   iterationId,
@@ -124,15 +138,11 @@ export default function SliceButton({
         <div className="bg-white border rounded p-3 text-xs shadow space-y-2">
           <div>
             <span className="text-gray-500">Print time: </span>
-            <strong>
-              {result.meta.print_time_min ? `${result.meta.print_time_min.toFixed(0)} min` : '—'}
-            </strong>
+            <strong>{fmtPrintTime(result.meta.print_time_min)}</strong>
           </div>
           <div>
             <span className="text-gray-500">Filament: </span>
-            <strong>
-              {result.meta.filament_g ? `${result.meta.filament_g.toFixed(1)} g` : '—'}
-            </strong>
+            <strong>{fmtFilament(result.meta.filament_g)} · {fmtFilamentM(result.meta.filament_m)}</strong>
           </div>
           <button
             onClick={download}

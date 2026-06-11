@@ -5,6 +5,7 @@ export type SliceResult = {
   meta: {
     print_time_min: number | null
     filament_g: number | null
+    filament_m: number | null
   }
 }
 
