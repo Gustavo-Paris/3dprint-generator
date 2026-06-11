@@ -30,6 +30,37 @@ export type MeshValidityReport = {
   watertight: boolean
 }
 
+export type MeshBannerState =
+  | { show: false }
+  | { show: true; tone: 'info' | 'warn'; title: string; detail: string }
+
+/**
+ * Map a validity report to the advisory banner state.
+ *
+ * OrcaSlicer auto-repairs small openings, non-manifold edges and degenerate
+ * triangles on import — a parametric plate-with-hole slices and prints fine
+ * despite the ~88 hole-rim boundary edges JSCAD's BSP subtract leaves behind.
+ * So those are an INFORMATIONAL note, not an alarm. Only non-finite coordinates
+ * (NaN/±Infinity) are genuinely unprintable and keep a real warning.
+ */
+export function meshValidityBanner(report: MeshValidityReport | null): MeshBannerState {
+  if (!report || !report.analyzed || report.watertight) return { show: false }
+  if (report.nonFiniteTriangles > 0) {
+    return {
+      show: true,
+      tone: 'warn',
+      title: 'Malha com coordenadas inválidas',
+      detail: 'pode falhar na impressão.',
+    }
+  }
+  return {
+    show: true,
+    tone: 'info',
+    title: 'Pequenas aberturas na malha',
+    detail: 'o slicer ajusta automaticamente ao imprimir.',
+  }
+}
+
 function skipped(triangleCount: number): MeshValidityReport {
   return {
     triangleCount,
