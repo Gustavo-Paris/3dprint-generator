@@ -20,6 +20,8 @@ type ChatMsg = {
   iterationId?: string
   strategy?: 'parametric' | 'generative'
   imageUrl?: string
+  status?: 'generating' | 'ready' | 'failed' | 'sliced'
+  design?: unknown
 }
 
 function base64ToUint8(b64: string): Uint8Array {
@@ -27,6 +29,69 @@ function base64ToUint8(b64: string): Uint8Array {
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
   return bytes
+}
+
+/** The "Logo aqui" placement only works on an imported base mesh — a fresh .3mf
+ *  upload (pendingMeshUrl) or a history row whose design kind is 'imported'.
+ *  Parametric projects 400 on logoPlacement, so the control is hidden there. */
+export function hasImportedBase(
+  history: Pick<Iteration, 'validationReport'>[],
+  pendingMeshUrl: string | null,
+): boolean {
+  if (pendingMeshUrl) return true
+  return history.some((it) => {
+    const vr = it.validationReport as { kind?: string } | null
+    return vr?.kind === 'imported'
+  })
+}
+
+/** Build the chat transcript from iteration history, branching on status so a
+ *  failed row shows its error and an in-flight row shows a spinner label —
+ *  instead of every row reading as "Generated". */
+export function mapHistoryToMessages(history: Iteration[]): ChatMsg[] {
+  return history.flatMap((it) => {
+    const userMsg: ChatMsg = {
+      role: 'user',
+      text: it.userMessage,
+      imageUrl: it.imageBlobUrl ?? undefined,
+    }
+    if (it.status === 'failed') {
+      return [userMsg, {
+        role: 'assistant' as const,
+        text: `Falhou: ${it.error ?? 'erro desconhecido'}`,
+        iterationId: it.id,
+        status: 'failed' as const,
+      }]
+    }
+    if (it.status === 'generating') {
+      return [userMsg, {
+        role: 'assistant' as const,
+        text: 'Gerando…',
+        iterationId: it.id,
+        status: 'generating' as const,
+      }]
+    }
+    if (it.strategy === 'parametric' && it.jscadCode) {
+      return [userMsg, {
+        role: 'assistant' as const,
+        text: it.jscadCode,
+        iterationId: it.id,
+        strategy: 'parametric' as const,
+        status: it.status,
+      }]
+    }
+    if (it.strategy === 'generative') {
+      return [userMsg, {
+        role: 'assistant' as const,
+        text: 'Pronto',
+        iterationId: it.id,
+        strategy: 'generative' as const,
+        status: it.status,
+        design: it.validationReport ?? undefined,
+      }]
+    }
+    return [userMsg]
+  })
 }
 
 export default function ProjectWorkspace({
@@ -186,37 +251,8 @@ export default function ProjectWorkspace({
     }
   }
 
-  const initialMessages: ChatMsg[] = initialHistory.flatMap((it) => {
-    const userMsg: ChatMsg = {
-      role: 'user',
-      text: it.userMessage,
-      imageUrl: it.imageBlobUrl ?? undefined,
-    }
-    if (it.strategy === 'parametric' && it.jscadCode) {
-      return [
-        userMsg,
-        { role: 'assistant', text: it.jscadCode, iterationId: it.id, strategy: 'parametric' },
-      ]
-    }
-    if (it.strategy === 'generative') {
-      // validationReport now holds the parsed Design JSON (the schema the LLM
-      // emitted). Surfaces in the chat as a collapsible "Design interpretado"
-      // block so the user can see exactly what the LLM picked and iterate.
-      const design = it.validationReport ?? undefined
-      const label = 'Generated'
-      return [
-        userMsg,
-        {
-          role: 'assistant',
-          text: label,
-          iterationId: it.id,
-          strategy: 'generative',
-          design,
-        },
-      ]
-    }
-    return [userMsg]
-  })
+  const initialMessages: ChatMsg[] = mapHistoryToMessages(initialHistory)
+  const importedBaseAvailable = hasImportedBase(initialHistory, pendingMeshUrl)
 
   const [bodyColor, setBodyColor] = useState('#3b82f6')
   const [logoColor, setLogoColor] = useState('#f8fafc')
@@ -313,7 +349,7 @@ export default function ProjectWorkspace({
             stl={stl}
             onFlexified={onResult}
           />
-          {positions && (
+          {positions && importedBaseAvailable && (
             <button
               onClick={() => { setPickMode((v) => !v); setPick(null) }}
               className={`px-3 py-2 rounded text-sm font-medium border shadow-sm ${
