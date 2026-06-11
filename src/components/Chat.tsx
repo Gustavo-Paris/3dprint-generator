@@ -31,6 +31,14 @@ function designSummary(design: unknown): string {
   return parts.join(' · ')
 }
 
+/** The parametric pipeline always persists strategy:'generative' even for
+ *  JSCAD-built primitives, so the badge must come from the design kind, not the
+ *  stored strategy: only a 'freeform' design is a real Meshy mesh. */
+export function badgeFor(design: unknown): 'meshy' | 'jscad' {
+  const kind = (design as { kind?: string } | undefined)?.kind
+  return kind === 'freeform' ? 'meshy' : 'jscad'
+}
+
 type Msg = {
   role: 'user' | 'assistant'
   text: string
@@ -204,7 +212,7 @@ export default function Chat({
             </div>
             {m.role === 'assistant' && m.strategy && (
               <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-gray-200 text-gray-700 uppercase align-top">
-                {m.strategy === 'generative' ? 'meshy' : 'jscad'}
+                {badgeFor(m.design)}
               </span>
             )}
             {m.role === 'assistant' && m.designAdjustments && m.designAdjustments.length > 0 && (
