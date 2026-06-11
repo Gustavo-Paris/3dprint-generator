@@ -27,6 +27,8 @@ import type { SemanticFace } from '@/lib/import/types'
 import { put } from '@vercel/blob'
 import { serialize3mf } from '@/lib/3mf/serialize-3mf'
 import { generateMesh, generateMeshFromImage, isMeshyConfigured } from '@/lib/meshy/client'
+import { apiError } from '@/lib/http/api-error'
+import { createRequestLogger } from '@/lib/log'
 import { and, asc, eq } from 'drizzle-orm'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -65,16 +67,17 @@ const Body = z.object({
 })
 
 export async function POST(req: Request) {
+  const log = createRequestLogger('generate')
   const session = await auth()
-  if (!session?.user?.id) return new Response('Unauthenticated', { status: 401 })
+  if (!session?.user?.id) return apiError(401, 'unauthenticated', 'Faça login para continuar.')
 
   // Best-effort reaper: clear iterations stuck in 'generating' (crashed route or
   // unguarded tail throw). Non-fatal — never block a new generate on it. A cron
   // job can call reapStuckIterations() directly too.
-  try { await reapStuckIterations(db) } catch (e) { console.error('[generate] reaper failed:', e) }
+  try { await reapStuckIterations(db) } catch (e) { log.error('reaper failed', e) }
 
   const parsed = Body.safeParse(await req.json())
-  if (!parsed.success) return new Response('Invalid body', { status: 400 })
+  if (!parsed.success) return apiError(400, 'invalid_body', 'Requisição inválida.')
   const { projectId, message, imageUrl, meshUrl: freshMeshUrl, previewDataUrls: freshPreviews, designOverride, logoPlacement } = parsed.data
 
   const [project] = await db
@@ -82,7 +85,7 @@ export async function POST(req: Request) {
     .from(projects)
     .where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id)))
     .limit(1)
-  if (!project) return new Response('Not found', { status: 404 })
+  if (!project) return apiError(404, 'not_found', 'Projeto não encontrado.')
 
   // Resolve image: fresh upload wins; else most recent image in this project.
   const history = await db
@@ -126,7 +129,7 @@ export async function POST(req: Request) {
         .set({ imageDescription: effectiveDescription })
         .where(eq(iterations.id, iteration.id))
     } catch (err) {
-      console.error('[generate] describeImage failed (continuing):', err)
+      log.error('describeImage failed (continuing)', err, { iterationId: iteration.id })
     }
   }
 
@@ -143,7 +146,7 @@ export async function POST(req: Request) {
         logoImageBuffer = await readFile(join(process.cwd(), 'public', effectiveImageUrl))
       }
     } catch (err) {
-      console.error('[generate] image fetch failed (continuing without logo):', err)
+      log.error('image fetch failed (continuing without logo)', err, { iterationId: iteration.id })
     }
   }
   let imageAspectRatio: number | null = null
@@ -187,10 +190,7 @@ export async function POST(req: Request) {
         await db.update(iterations)
           .set({ status: 'failed', error: 'previewDataUrls required for imported mesh' })
           .where(eq(iterations.id, iteration.id))
-        return Response.json({
-          error: 'Imported edit requires previewDataUrls (client must capture and send them with the first request)',
-          iteration_id: iteration.id,
-        }, { status: 400 })
+        return apiError(400, 'previews_required', 'A edição de malha importada exige as pré-visualizações (o cliente deve capturá-las e enviá-las no primeiro pedido).', { iteration_id: iteration.id })
       }
       importContext = {
         baseMeshUrl: effectiveMeshUrl,
@@ -199,15 +199,11 @@ export async function POST(req: Request) {
         bboxMm: base.bbox.size as [number, number, number],
       }
     } catch (err) {
-      const e = err as Error
-      console.error('[generate] base mesh load/segment failed:', e.stack ?? e.message)
+      log.error('base mesh load/segment failed', err, { iterationId: iteration.id, meshUrl: effectiveMeshUrl })
       await db.update(iterations)
-        .set({ status: 'failed', error: `base mesh load failed: ${e.message}` })
+        .set({ status: 'failed', error: `base mesh load failed: ${(err as Error).message}` })
         .where(eq(iterations.id, iteration.id))
-      return Response.json({
-        error: `Failed to load base mesh: ${e.message}`,
-        iteration_id: iteration.id,
-      }, { status: 500 })
+      return apiError(500, 'base_mesh_failed', 'Não foi possível carregar a malha base.', { iteration_id: iteration.id })
     }
   }
 
@@ -236,10 +232,7 @@ export async function POST(req: Request) {
         await db.update(iterations)
           .set({ status: 'failed', error: 'logoPlacement requires an imported base mesh' })
           .where(eq(iterations.id, iteration.id))
-        return Response.json({
-          error: 'No imported mesh to place the logo on.',
-          iteration_id: iteration.id,
-        }, { status: 400 })
+        return apiError(400, 'no_imported_mesh', 'Nenhuma malha importada para posicionar o logo.', { iteration_id: iteration.id })
       }
       candidate = {
         kind: 'imported',
@@ -268,7 +261,7 @@ export async function POST(req: Request) {
       if (quick) {
         candidate = quick
         designSource = 'quick_modifier'
-        console.log('[generate] quick modifier matched:', message)
+        log.info('quick modifier matched', { message })
       } else {
         candidate = await parseDesign({
           messages: allMessages,
@@ -285,15 +278,14 @@ export async function POST(req: Request) {
     design = sane.design
     designAdjustments = sane.adjustments
     if (designAdjustments.length > 0) {
-      console.log(`[generate] design clamped (${designSource}):`, designAdjustments)
+      log.info('design clamped', { source: designSource, adjustments: designAdjustments })
     }
   } catch (err) {
-    const e = err as Error
-    console.error('[generate] parseDesign failed:', e.stack ?? e.message)
+    log.error('parseDesign failed', err, { iterationId: iteration.id })
     await db.update(iterations)
-      .set({ status: 'failed', error: `design parse failed: ${e.message}` })
+      .set({ status: 'failed', error: `design parse failed: ${(err as Error).message}` })
       .where(eq(iterations.id, iteration.id))
-    return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
+    return apiError(500, 'design_parse_failed', 'Não foi possível interpretar o pedido.', { iteration_id: iteration.id })
   }
 
   // Build geometry. Freeform → Meshy (organic/figurative shapes the parametric
@@ -306,20 +298,18 @@ export async function POST(req: Request) {
       await db.update(iterations)
         .set({ status: 'failed', error: 'Freeform generation not configured (MESHY_API_KEY missing)' })
         .where(eq(iterations.id, iteration.id))
-      return Response.json({
-        error: 'Freeform generation is not configured. Set MESHY_API_KEY or rephrase as a parametric shape.',
-        iteration_id: iteration.id,
-      }, { status: 503 })
+      return apiError(503, 'freeform_unavailable', 'A geração freeform não está configurada.', { iteration_id: iteration.id })
     }
     const apiKey = process.env.MESHY_API_KEY as string
     const meshy = design.sourceImageUrl
       ? await generateMeshFromImage({ imageUrl: design.sourceImageUrl, apiKey })
       : await generateMesh({ prompt: design.prompt, apiKey })
     if (!meshy.ok) {
+      log.error('meshy failed', new Error(meshy.error), { iterationId: iteration.id })
       await db.update(iterations)
         .set({ status: 'failed', error: `meshy failed: ${meshy.error}` })
         .where(eq(iterations.id, iteration.id))
-      return Response.json({ error: meshy.error, iteration_id: iteration.id }, { status: 502 })
+      return apiError(502, 'meshy_failed', 'A geração freeform falhou.', { iteration_id: iteration.id })
     }
     finalMeshBytes = meshy.stl
   } else {
@@ -327,12 +317,11 @@ export async function POST(req: Request) {
     try {
       result = await generateFromDesign(design, { logoImageBuffer })
     } catch (err) {
-      const e = err as Error
-      console.error('[generate] generator failed:', e.stack ?? e.message)
+      log.error('generator failed', err, { iterationId: iteration.id })
       await db.update(iterations)
-        .set({ status: 'failed', error: `build failed: ${e.message}` })
+        .set({ status: 'failed', error: `build failed: ${(err as Error).message}` })
         .where(eq(iterations.id, iteration.id))
-      return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
+      return apiError(500, 'build_failed', 'Não foi possível gerar a peça.', { iteration_id: iteration.id })
     }
     // Parametric builders produce already-grounded geometry in the correct
     // orientation — no post-processing needed.
@@ -379,12 +368,11 @@ export async function POST(req: Request) {
       },
     })
   } catch (err) {
-    const e = err as Error
-    console.error('[generate] persist/finalize failed:', e.stack ?? e.message)
+    log.error('persist/finalize failed', err, { iterationId: iteration.id })
     await db.update(iterations)
-      .set({ status: 'failed', error: `persist failed: ${e.message}` })
+      .set({ status: 'failed', error: `persist failed: ${(err as Error).message}` })
       .where(eq(iterations.id, iteration.id))
-    return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
+    return apiError(500, 'persist_failed', 'Não foi possível salvar a peça gerada.', { iteration_id: iteration.id })
   }
 }
 
