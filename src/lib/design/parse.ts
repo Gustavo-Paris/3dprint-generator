@@ -90,9 +90,35 @@ ${isMeshyConfigured()
 
 Reply with ONLY valid JSON matching the schema. No markdown, no prose, no \`\`\` fences.`,
     maxOutputTokens: 800,
+    abortSignal: AbortSignal.timeout(60_000),
   })
 
-  // Strip optional fenced code wrappers in case the model adds them anyway.
+  const first = tryParseDesign(text)
+  if (first.ok) return first.design
+
+  // One repair re-ask: hand the model its own bad output + the error and let it
+  // correct itself before we give up.
+  const { text: repaired } = await generateText({
+    model: getClassifierModel(),
+    system: SYSTEM,
+    prompt:
+      `Your previous reply was not a valid Design JSON.\n` +
+      `ERROR: ${first.error}\n` +
+      `YOUR PREVIOUS REPLY:\n${text.slice(0, 1000)}\n\n` +
+      `Reply again with ONLY valid JSON matching the schema. No markdown, no prose.`,
+    maxOutputTokens: 800,
+    abortSignal: AbortSignal.timeout(60_000),
+  })
+  const second = tryParseDesign(repaired)
+  if (second.ok) return second.design
+  throw new Error(second.error)
+}
+
+type ParseAttempt = { ok: true; design: Design } | { ok: false; error: string }
+
+/** Strip optional fenced code wrappers, JSON.parse, then Zod-validate. Returns a
+ *  result instead of throwing so the caller can re-ask once on failure. */
+function tryParseDesign(text: string): ParseAttempt {
   const cleaned = text
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
@@ -103,18 +129,14 @@ Reply with ONLY valid JSON matching the schema. No markdown, no prose, no \`\`\`
   try {
     json = JSON.parse(cleaned)
   } catch (err) {
-    throw new Error(
-      `LLM did not return valid JSON: ${(err as Error).message}\nGot: ${text.slice(0, 200)}`,
-    )
+    return { ok: false, error: `LLM did not return valid JSON: ${(err as Error).message}\nGot: ${text.slice(0, 200)}` }
   }
 
   const result = Design.safeParse(json)
   if (!result.success) {
-    throw new Error(
-      `LLM JSON did not match Design schema: ${result.error.message}\nGot: ${JSON.stringify(json).slice(0, 300)}`,
-    )
+    return { ok: false, error: `LLM JSON did not match Design schema: ${result.error.message}\nGot: ${JSON.stringify(json).slice(0, 300)}` }
   }
-  return result.data
+  return { ok: true, design: result.data }
 }
 
 const SYSTEM = `You convert a user's 3D-print request into a structured Design JSON.
