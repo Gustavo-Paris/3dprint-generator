@@ -3,6 +3,8 @@ import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { sliceStl, SlicerError } from '@/lib/slicer/client'
 import { assertSliceable } from '@/lib/slice/preconditions'
+import { apiError } from '@/lib/http/api-error'
+import { createRequestLogger } from '@/lib/log'
 import { put } from '@vercel/blob'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -17,11 +19,12 @@ const Body = z.object({
 })
 
 export async function POST(req: Request) {
+  const log = createRequestLogger('slice')
   const session = await auth()
-  if (!session?.user?.id) return new Response('Unauthenticated', { status: 401 })
+  if (!session?.user?.id) return apiError(401, 'unauthenticated', 'Faça login para continuar.')
 
   const parsed = Body.safeParse(await req.json())
-  if (!parsed.success) return new Response('Invalid body', { status: 400 })
+  if (!parsed.success) return apiError(400, 'invalid_body', 'Requisição inválida.')
   const { iterationId } = parsed.data
 
   const [row] = await db
@@ -30,14 +33,14 @@ export async function POST(req: Request) {
     .innerJoin(projects, eq(iterations.projectId, projects.id))
     .where(and(eq(iterations.id, iterationId), eq(projects.userId, session.user.id)))
     .limit(1)
-  if (!row) return new Response('Not found', { status: 404 })
+  if (!row) return apiError(404, 'not_found', 'Iteração não encontrada.')
 
   // Only ready/sliced rows are sliceable — never a generating/failed one.
   const gate = assertSliceable(row.iteration.status)
-  if (!gate.ok) return new Response(gate.message, { status: gate.status })
+  if (!gate.ok) return apiError(gate.status, 'not_sliceable', 'Esta iteração ainda não pode ser fatiada.')
 
   if (!row.iteration.meshBlobUrl) {
-    return new Response('Iteration has no persisted mesh to slice', { status: 409 })
+    return apiError(409, 'no_mesh', 'Esta iteração não tem malha para fatiar.')
   }
 
   // Slice the SERVER-persisted mesh, not bytes the client sent. Blob URLs are
@@ -55,7 +58,8 @@ export async function POST(req: Request) {
       meshBytes = await readFile(join(process.cwd(), 'public', url))
     }
   } catch (e) {
-    return new Response(`Failed to load persisted mesh: ${(e as Error).message}`, { status: 502 })
+    log.error('persisted mesh load failed', e, { iterationId })
+    return apiError(502, 'mesh_load_failed', 'Não foi possível carregar a malha para o fatiamento.')
   }
 
   // Flatten multi-body meshes to a single-material STL for slicing. A multi-body
@@ -71,7 +75,8 @@ export async function POST(req: Request) {
       const mesh = await loadBaseMeshFromBytes(new Uint8Array(meshBytes))
       meshBytes = Buffer.from(serializeBinarySTL(Array.from(mesh.positions)))
     } catch (e) {
-      return new Response(`Failed to convert 3MF for slicing: ${(e as Error).message}`, { status: 422 })
+      log.error('3mf->stl convert failed', e, { iterationId })
+      return apiError(422, 'mesh_convert_failed', 'Não foi possível preparar a malha para o fatiamento.')
     }
   }
 
@@ -79,12 +84,14 @@ export async function POST(req: Request) {
   try {
     result = await sliceStl(meshBytes)
   } catch (e) {
+    log.error('slice failed', e, { iterationId })
     if (e instanceof SlicerError) {
-      // offline/timeout → 503 (slicer unavailable); slicer-side failure → 502.
-      const status = e.kind === 'slicer' ? 502 : 503
-      return new Response(e.message, { status })
+      // slicer-side failure → 502; offline/timeout → 503 (slicer unavailable).
+      return e.kind === 'slicer'
+        ? apiError(502, 'slicer_failed', 'O fatiador falhou ao processar a malha.')
+        : apiError(503, 'slicer_unavailable', 'O fatiador está indisponível no momento.')
     }
-    return new Response(`Slicer error: ${(e as Error).message}`, { status: 502 })
+    return apiError(502, 'slicer_failed', 'O fatiador falhou ao processar a malha.')
   }
 
   // Upload 3MF to Blob if configured; otherwise return inline base64 so the
