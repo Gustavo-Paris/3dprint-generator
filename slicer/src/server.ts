@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { parse3mfSliceMeta } from './slice-meta'
 
 const app = express()
 // Real imported meshes (500k–2M triangles) base64 to tens of MB. 20mb rejected
@@ -89,16 +90,15 @@ app.post('/slice', async (req, res) => {
     }
 
     const out = readFileSync(outPath)
-    const stdout = result.stdout
-    const timeMatch = stdout.match(/(?:print|estimated[_ ]printing)[\s_]*time[^:]*:?[\s_=]+([0-9.]+)/i)
-    const weightMatch = stdout.match(/filament[\s_]*(?:used[\s_]*\(g\)|weight)[\s_]*:?[\s_=]+([0-9.]+)/i)
+    const meta = parse3mfSliceMeta(out)
 
     res.json({
       bytes_base64: out.toString('base64'),
       meta: {
-        print_time_min: timeMatch ? Number(timeMatch[1]) : null,
-        filament_g: weightMatch ? Number(weightMatch[1]) : null,
-        stdout_tail: stdout.slice(-1000),
+        print_time_min: meta.print_time_min,
+        filament_g: meta.filament_g,
+        filament_m: meta.filament_m,
+        stdout_tail: result.stdout.slice(-1000),
       },
     })
   } catch (e) {
