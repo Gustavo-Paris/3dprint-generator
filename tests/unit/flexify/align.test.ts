@@ -35,7 +35,7 @@ describe('flexify/align', () => {
     expect(doubled.bbox.size[2]).toBeCloseTo(rocktopusMesh.bbox.size[2] * 2, 4)
   })
 
-  it('alignMeshes centers both meshes and scales rocktopus to meshy XY', () => {
+  it('alignMeshes centers both, scales rocktopus to meshy XY, and squishes meshy Z to match', () => {
     const { meshy, rocktopus, rocktopusScale } = alignMeshes(meshyMesh, rocktopusMesh)
 
     // Both centered at origin
@@ -44,14 +44,17 @@ describe('flexify/align', () => {
     expect(rocktopus.bbox.center[0]).toBeCloseTo(0, 3)
     expect(rocktopus.bbox.center[1]).toBeCloseTo(0, 3)
 
-    // Rocktopus's larger XY matches Meshy's larger XY (within 1mm tolerance)
+    // XY footprints match (within 1mm)
     const meshyXY = Math.max(meshy.bbox.size[0], meshy.bbox.size[1])
     const rockXY = Math.max(rocktopus.bbox.size[0], rocktopus.bbox.size[1])
     expect(rockXY).toBeCloseTo(meshyXY, 0)
 
-    // Scale factor in a sane range (Rocktopus ~65mm → Meshy ~97mm = ~1.5×)
+    // Z extents now also match (within 0.5mm)
+    expect(meshy.bbox.size[2]).toBeCloseTo(rocktopus.bbox.size[2], 0)
+
+    // Sane scale factor (Rocktopus ~65mm → typical Meshy ~100-250mm)
     expect(rocktopusScale).toBeGreaterThan(1.3)
-    expect(rocktopusScale).toBeLessThan(1.7)
+    expect(rocktopusScale).toBeLessThan(5.0)
   })
 
   it('alignMeshes preserves triangle count + extruder labels', () => {

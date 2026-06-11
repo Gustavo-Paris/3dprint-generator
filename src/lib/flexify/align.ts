@@ -43,20 +43,48 @@ export function centerAtOrigin(mesh: BaseMesh): BaseMesh {
 
 /** Multiply every vertex by `s`. Uniform scale only. */
 export function scaleMesh(mesh: BaseMesh, s: number): BaseMesh {
-  if (s === 1) return mesh
+  return scaleMeshNonUniform(mesh, [s, s, s])
+}
+
+/** Scale per-axis. Normals stay valid only if scale is uniform; for
+ *  non-uniform scale we recompute them. */
+export function scaleMeshNonUniform(mesh: BaseMesh, s: [number, number, number]): BaseMesh {
+  if (s[0] === 1 && s[1] === 1 && s[2] === 1) return mesh
   const positions = new Float32Array(mesh.positions.length)
-  for (let i = 0; i < mesh.positions.length; i++) positions[i] = mesh.positions[i] * s
-  // Normals are unit vectors — invariant under uniform scale. Reuse.
+  for (let i = 0; i < mesh.positions.length; i += 3) {
+    positions[i]     = mesh.positions[i]     * s[0]
+    positions[i + 1] = mesh.positions[i + 1] * s[1]
+    positions[i + 2] = mesh.positions[i + 2] * s[2]
+  }
+  // Recompute normals (under non-uniform scale they change direction).
+  const triCount = mesh.triangleCount
+  const normals = new Float32Array(triCount * 3)
+  for (let t = 0; t < triCount; t++) {
+    const o = t * 9
+    const ax = positions[o], ay = positions[o + 1], az = positions[o + 2]
+    const bx = positions[o + 3], by = positions[o + 4], bz = positions[o + 5]
+    const cx = positions[o + 6], cy = positions[o + 7], cz = positions[o + 8]
+    const ux = bx - ax, uy = by - ay, uz = bz - az
+    const vx = cx - ax, vy = cy - ay, vz = cz - az
+    let nx = uy * vz - uz * vy
+    let ny = uz * vx - ux * vz
+    let nz = ux * vy - uy * vx
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1
+    nx /= len; ny /= len; nz /= len
+    normals[t * 3] = nx
+    normals[t * 3 + 1] = ny
+    normals[t * 3 + 2] = nz
+  }
   return {
     positions,
-    normals: mesh.normals,
+    normals,
     extruders: mesh.extruders,
     triangleCount: mesh.triangleCount,
     bbox: {
-      min: [mesh.bbox.min[0] * s, mesh.bbox.min[1] * s, mesh.bbox.min[2] * s],
-      max: [mesh.bbox.max[0] * s, mesh.bbox.max[1] * s, mesh.bbox.max[2] * s],
-      size: [mesh.bbox.size[0] * s, mesh.bbox.size[1] * s, mesh.bbox.size[2] * s],
-      center: [mesh.bbox.center[0] * s, mesh.bbox.center[1] * s, mesh.bbox.center[2] * s],
+      min: [mesh.bbox.min[0] * s[0], mesh.bbox.min[1] * s[1], mesh.bbox.min[2] * s[2]],
+      max: [mesh.bbox.max[0] * s[0], mesh.bbox.max[1] * s[1], mesh.bbox.max[2] * s[2]],
+      size: [mesh.bbox.size[0] * s[0], mesh.bbox.size[1] * s[1], mesh.bbox.size[2] * s[2]],
+      center: [mesh.bbox.center[0] * s[0], mesh.bbox.center[1] * s[1], mesh.bbox.center[2] * s[2]],
     },
   }
 }
@@ -64,21 +92,32 @@ export function scaleMesh(mesh: BaseMesh, s: number): BaseMesh {
 /**
  * Align the Meshy and Rocktopus meshes into a shared coordinate frame.
  *
- * Strategy: both meshes centered at origin; Rocktopus scaled uniformly
- * so its larger XY axis matches the Meshy's larger XY axis. This keeps
- * the Z relationship intact — the result is a Rocktopus with tentacles
- * radiating the same width as the Meshy, but slightly shorter vertically
- * (the user accepted this tradeoff).
+ * Two-step alignment, both centered at origin afterward:
+ *   1. Scale Rocktopus uniformly so its larger XY axis matches the
+ *      Meshy's larger XY axis (octopus footprint match).
+ *   2. Scale the Meshy NON-UNIFORMLY in Z so its Z extent matches the
+ *      now-scaled Rocktopus's Z extent. This is the key fix: without
+ *      it, the tall Meshy (e.g. cthulhu standing 120mm) sits "above"
+ *      the flat Rocktopus (93mm scaled) and the chunking assigns the
+ *      upper body to the Rocktopus body component without spatial
+ *      overlap → Vin Diesel kraken effect.
+ *
+ * The user accepted "Rocktopus silhouette + Meshy aesthetic", so
+ * squishing the Meshy into the Rocktopus envelope is the right move.
  */
 export function alignMeshes(meshyOriginal: BaseMesh, rocktopusOriginal: BaseMesh): AlignedPair {
-  const meshy = centerAtOrigin(meshyOriginal)
+  const meshyCentered = centerAtOrigin(meshyOriginal)
   const rocktopusCentered = centerAtOrigin(rocktopusOriginal)
 
-  const meshyXY = Math.max(meshy.bbox.size[0], meshy.bbox.size[1])
+  // Step 1: scale Rocktopus to match Meshy XY footprint
+  const meshyXY = Math.max(meshyCentered.bbox.size[0], meshyCentered.bbox.size[1])
   const rockXY = Math.max(rocktopusCentered.bbox.size[0], rocktopusCentered.bbox.size[1])
-  const scale = meshyXY / rockXY
+  const rocktopusScale = meshyXY / rockXY
+  const rocktopus = scaleMesh(rocktopusCentered, rocktopusScale)
 
-  const rocktopus = scaleMesh(rocktopusCentered, scale)
+  // Step 2: squish Meshy in Z to match the (now-scaled) Rocktopus's Z extent
+  const zScale = rocktopus.bbox.size[2] / meshyCentered.bbox.size[2]
+  const meshy = scaleMeshNonUniform(meshyCentered, [1, 1, zScale])
 
-  return { meshy, rocktopus, rocktopusScale: scale }
+  return { meshy, rocktopus, rocktopusScale }
 }
