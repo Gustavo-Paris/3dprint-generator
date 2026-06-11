@@ -3,6 +3,12 @@ import { z } from 'zod'
 const schema = z.object({
   DATABASE_URL: z.string().url(),
   AUTH_SECRET: z.string().min(1),
+  // Canonical origin (e.g. https://app.example.com). When set, NextAuth builds
+  // callback/magic-link URLs from it and IGNORES the client-supplied Host header,
+  // closing the Host-injection -> magic-link token-exfiltration vector that bare
+  // `trustHost: true` would otherwise leave open. Required in production (enforced
+  // below); optional in dev where trustHost handles localhost.
+  AUTH_URL: z.string().url().optional(),
   AUTH_RESEND_KEY: z.string().min(1),
   AUTH_EMAIL_FROM: z.string().email(),
   AUTH_ALLOWED_EMAILS: z.string().min(1),
@@ -18,6 +24,16 @@ const parsed = schema.safeParse(process.env)
 if (!parsed.success) {
   console.error('Invalid env:', parsed.error.flatten().fieldErrors)
   throw new Error('Invalid environment variables')
+}
+
+// In production, AUTH_URL must pin the canonical origin so NextAuth never trusts
+// a client-supplied Host header for magic-link callbacks. trustHost alone is not a
+// mitigation (it is the same switch as AUTH_TRUST_HOST). Fail fast at boot instead.
+if (process.env.NODE_ENV === 'production' && !parsed.data.AUTH_URL) {
+  throw new Error(
+    'AUTH_URL must be set in production (canonical origin, e.g. https://app.example.com) — ' +
+      'it pins magic-link callback URLs against Host-header injection.',
+  )
 }
 
 export const env = parsed.data

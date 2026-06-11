@@ -10,9 +10,12 @@ import { allowedEmails, env } from '@/env'
 const isE2E = env.E2E_ALLOW_TEST_LOGIN === '1'
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  // Required under `next start` (and Railway): NextAuth v5 otherwise throws
-  // UntrustedHost on every auth() because it can't infer the deployment URL,
-  // which silently blanks the whole app. AUTH_TRUST_HOST in the env is the belt.
+  // Without this, NextAuth v5 throws UntrustedHost on every auth() under
+  // `next start` (it can't infer the deployment URL), which silently blanks the
+  // whole app. SECURITY: trustHost alone trusts the client Host header — unsafe
+  // for magic-link callbacks. The real mitigation is AUTH_URL (pinned canonical
+  // origin, required in production via src/env.ts); NextAuth reads it and ignores
+  // the request Host. trustHost stays as the dev/localhost fallback only.
   trustHost: true,
   adapter: DrizzleAdapter(db, {
     usersTable: users,
