@@ -10,6 +10,10 @@ import { allowedEmails, env } from '@/env'
 const isE2E = env.E2E_ALLOW_TEST_LOGIN === '1'
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Required under `next start` (and Railway): NextAuth v5 otherwise throws
+  // UntrustedHost on every auth() because it can't infer the deployment URL,
+  // which silently blanks the whole app. AUTH_TRUST_HOST in the env is the belt.
+  trustHost: true,
   adapter: DrizzleAdapter(db, {
     usersTable: users,
     accountsTable: accounts,
