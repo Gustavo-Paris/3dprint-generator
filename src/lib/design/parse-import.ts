@@ -99,9 +99,35 @@ export async function parseImportEdit(input: ParseImportEditInput): Promise<Desi
       },
     ],
     maxOutputTokens: 1200,
+    abortSignal: AbortSignal.timeout(60_000),
   })
 
-  // Strip optional markdown code fences that some models emit despite instructions.
+  const first = tryParseImport(text)
+  if (first.ok) return first.design
+
+  // One repair re-ask, text-only (the bad output + error is enough; no need to
+  // re-send the preview images).
+  const { text: repaired } = await generateText({
+    model: getModel(),
+    system: SYSTEM,
+    prompt:
+      `Your previous reply was not a valid imported-edit JSON.\n` +
+      `ERROR: ${first.error}\n` +
+      `YOUR PREVIOUS REPLY:\n${text.slice(0, 1000)}\n\n` +
+      `Reply again with ONLY valid JSON: { "kind": "imported", "baseMeshUrl": "${baseMeshUrl}", "edits": [...] }. No markdown, no prose.`,
+    maxOutputTokens: 1200,
+    abortSignal: AbortSignal.timeout(60_000),
+  })
+  const second = tryParseImport(repaired)
+  if (second.ok) return second.design
+  throw new Error(second.error)
+}
+
+type ImportAttempt = { ok: true; design: DesignType } | { ok: false; error: string }
+
+/** Strip fences, JSON.parse, Zod-validate — returns a result instead of throwing
+ *  so the caller can re-ask once on failure. */
+function tryParseImport(text: string): ImportAttempt {
   const cleaned = text
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
@@ -112,16 +138,14 @@ export async function parseImportEdit(input: ParseImportEditInput): Promise<Desi
   try {
     json = JSON.parse(cleaned)
   } catch (err) {
-    throw new Error(
-      `parseImportEdit: bad JSON: ${(err as Error).message}\nGot: ${text.slice(0, 300)}`,
-    )
+    return { ok: false, error: `parseImportEdit: bad JSON: ${(err as Error).message}\nGot: ${text.slice(0, 300)}` }
   }
 
   const result = Design.safeParse(json)
   if (!result.success) {
-    throw new Error(`parseImportEdit: schema mismatch: ${result.error.message}`)
+    return { ok: false, error: `parseImportEdit: schema mismatch: ${result.error.message}` }
   }
-  return result.data
+  return { ok: true, design: result.data }
 }
 
 const SYSTEM = `You edit an existing 3D mesh by emitting a list of structured operations.

@@ -49,6 +49,7 @@ Example output: "A stylized PG monogram with intertwined Paris Group letters in 
       },
     ],
     maxOutputTokens: 200,
+    abortSignal: AbortSignal.timeout(60_000),
   })
 
   return text.trim()
