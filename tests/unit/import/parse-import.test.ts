@@ -73,11 +73,12 @@ describe('parseImportEdit', () => {
     expect(result.kind).toBe('imported')
   })
 
-  it('throws on invalid JSON from LLM', async () => {
+  it('throws on invalid JSON from LLM (both the first attempt and the repair re-ask)', async () => {
     const { generateText } = await import('ai')
-    vi.mocked(generateText).mockResolvedValueOnce({
-      text: 'not json at all',
-    } as Awaited<ReturnType<typeof generateText>>)
+    // Bad output for BOTH calls — the repair re-ask also fails, so it throws.
+    vi.mocked(generateText)
+      .mockResolvedValueOnce({ text: 'not json at all' } as Awaited<ReturnType<typeof generateText>>)
+      .mockResolvedValueOnce({ text: 'still not json' } as Awaited<ReturnType<typeof generateText>>)
 
     await expect(
       parseImportEdit({
@@ -96,11 +97,12 @@ describe('parseImportEdit', () => {
     ).rejects.toThrow(/bad JSON/i)
   })
 
-  it('throws on schema mismatch from LLM', async () => {
+  it('throws on schema mismatch from LLM (both the first attempt and the repair re-ask)', async () => {
     const { generateText } = await import('ai')
-    vi.mocked(generateText).mockResolvedValueOnce({
-      text: JSON.stringify({ kind: 'unknown_kind', whatever: true }),
-    } as Awaited<ReturnType<typeof generateText>>)
+    // Schema-invalid for BOTH calls — the repair re-ask also fails, so it throws.
+    vi.mocked(generateText)
+      .mockResolvedValueOnce({ text: JSON.stringify({ kind: 'unknown_kind', whatever: true }) } as Awaited<ReturnType<typeof generateText>>)
+      .mockResolvedValueOnce({ text: JSON.stringify({ kind: 'unknown_kind', whatever: true }) } as Awaited<ReturnType<typeof generateText>>)
 
     await expect(
       parseImportEdit({

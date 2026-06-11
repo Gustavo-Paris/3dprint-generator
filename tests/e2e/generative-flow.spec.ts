@@ -23,7 +23,12 @@ test('generative request goes through Meshy mock and renders the canvas', async 
         iteration_id: '00000000-0000-0000-0000-000000000050',
         mesh_url: null,
         mesh_base64: makeOneTriangleSTL().toString('base64'),
-        meta: { task_id: 'mock_task_1', took_ms: 12345 },
+        // A real Meshy/freeform response carries design.kind 'freeform' — the
+        // badge derives from it (badgeFor), not the stored strategy.
+        design: { kind: 'freeform', prompt: 'iron man helmet' },
+        design_adjustments: [],
+        warnings: [],
+        meta: {},
       }),
     })
   })
