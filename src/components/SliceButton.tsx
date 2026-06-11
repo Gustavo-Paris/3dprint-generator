@@ -62,18 +62,12 @@ export default function SliceButton({
     setError(null)
     setResult(null)
     try {
-      // STL can be large; chunked base64 encoding to avoid call stack overflow
-      let binary = ''
-      const chunkSize = 0x8000
-      for (let i = 0; i < stl.length; i += chunkSize) {
-        binary += String.fromCharCode(...stl.subarray(i, i + chunkSize))
-      }
-      const stlBase64 = btoa(binary)
-
+      // The route slices the server-persisted mesh for this iteration — we no
+      // longer upload client bytes (the server won't trust them).
       const res = await fetch('/api/slice', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ iterationId, stlBase64 }),
+        body: JSON.stringify({ iterationId }),
       })
       if (!res.ok) throw new Error(await res.text())
       setResult((await res.json()) as SliceResponse)

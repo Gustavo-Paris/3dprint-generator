@@ -2,6 +2,7 @@ import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { sliceStl, SlicerError } from '@/lib/slicer/client'
+import { assertSliceable } from '@/lib/slice/preconditions'
 import { put } from '@vercel/blob'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -13,7 +14,6 @@ export const maxDuration = 300
 
 const Body = z.object({
   iterationId: z.string().uuid(),
-  stlBase64: z.string().min(1),
 })
 
 export async function POST(req: Request) {
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
   const parsed = Body.safeParse(await req.json())
   if (!parsed.success) return new Response('Invalid body', { status: 400 })
-  const { iterationId, stlBase64 } = parsed.data
+  const { iterationId } = parsed.data
 
   const [row] = await db
     .select({ iteration: iterations, project: projects })
@@ -32,13 +32,38 @@ export async function POST(req: Request) {
     .limit(1)
   if (!row) return new Response('Not found', { status: 404 })
 
+  // Only ready/sliced rows are sliceable — never a generating/failed one.
+  const gate = assertSliceable(row.iteration.status)
+  if (!gate.ok) return new Response(gate.message, { status: gate.status })
+
+  if (!row.iteration.meshBlobUrl) {
+    return new Response('Iteration has no persisted mesh to slice', { status: 409 })
+  }
+
+  // Slice the SERVER-persisted mesh, not bytes the client sent. Blob URLs are
+  // absolute (http); local-dev meshes are relative under public/.
+  let meshBytes: Buffer
+  try {
+    const url = row.iteration.meshBlobUrl
+    if (url.startsWith('http')) {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`fetch ${res.status}`)
+      meshBytes = Buffer.from(await res.arrayBuffer())
+    } else {
+      const { readFile } = await import('node:fs/promises')
+      const { join } = await import('node:path')
+      meshBytes = await readFile(join(process.cwd(), 'public', url))
+    }
+  } catch (e) {
+    return new Response(`Failed to load persisted mesh: ${(e as Error).message}`, { status: 502 })
+  }
+
   // Flatten multi-body meshes to a single-material STL for slicing. A multi-body
   // emboss arrives as a 3MF (zip): OrcaSlicer can't load it under an .stl name,
   // and its per-body extruder mapping fights a single-filament profile. Slicing
   // is single-material anyway (multi-colour is the separate Download-3MF path),
   // so flatten all bodies into one STL the slicer loads cleanly. (Needs the
   // slicer's raised body limit — a 700k-tri STL is tens of MB.)
-  let meshBytes = Buffer.from(stlBase64, 'base64')
   if (meshBytes[0] === 0x50 && meshBytes[1] === 0x4b) {
     try {
       const { loadBaseMeshFromBytes } = await import('@/lib/import/load-base-mesh')
