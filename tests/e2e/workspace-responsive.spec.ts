@@ -1,28 +1,15 @@
 import { test, expect } from '@playwright/test'
+import { signInE2E } from './session-helper'
 
-const TOKEN = process.env.PW_SESSION_TOKEN!
-
-test('viewer slot stays within a 390px viewport', async ({ page, context }) => {
+test('viewer slot stays within a 390px viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  // Inject the session cookie directly so the proxy/page auth() resolves the DB
-  // session. `next start` over http://localhost (local smoke AND CI) uses the BARE
-  // cookie name `authjs.session-token` — NextAuth only switches to the `__Secure-`
-  // prefix when the resolved origin (AUTH_URL) is https. Use the bare name here.
-  await context.addCookies([
-    {
-      name: 'authjs.session-token',
-      value: TOKEN,
-      domain: 'localhost',
-      path: '/',
-      httpOnly: true,
-      secure: false,
-      sameSite: 'Lax',
-    },
-  ])
-  await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Your projects' })).toBeVisible()
-  // open the first project from the home list
-  await page.locator('a[href^="/projects/"]').first().click()
+  await signInE2E(page, process.env.E2E_TEST_EMAIL || 'gustavo.b.paris@gmail.com')
+
+  // Create a project so we land on the workspace (CI-safe: no pre-existing data).
+  await page.fill('input[name="title"]', 'Responsive E2E')
+  await page.click('button[type="submit"]')
+  await page.waitForURL(/\/projects\//)
+
   const viewer = page.getByTestId('viewer-slot')
   await expect(viewer).toBeVisible()
   const box = await viewer.boundingBox()
