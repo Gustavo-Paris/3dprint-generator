@@ -4,12 +4,13 @@ const TOKEN = process.env.PW_SESSION_TOKEN!
 
 test('viewer slot stays within a 390px viewport', async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  // Inject the prod (secure) session cookie programmatically so the node-runtime
-  // proxy resolves the DB session. Browsers won't store a Secure cookie set over
-  // plain HTTP, so we add it directly to the context.
+  // Inject the session cookie directly so the proxy/page auth() resolves the DB
+  // session. `next start` over http://localhost (local smoke AND CI) uses the BARE
+  // cookie name `authjs.session-token` — NextAuth only switches to the `__Secure-`
+  // prefix when the resolved origin (AUTH_URL) is https. Use the bare name here.
   await context.addCookies([
     {
-      name: '__Secure-authjs.session-token',
+      name: 'authjs.session-token',
       value: TOKEN,
       domain: 'localhost',
       path: '/',
