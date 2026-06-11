@@ -14,6 +14,8 @@
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
+import { reapStuckIterations } from '@/lib/db/reap-stuck-iterations'
+import { stripCacheKeys } from '@/lib/design/strip-cache-keys'
 import { describeImage } from '@/lib/prompt/describe-image'
 import { parseDesign } from '@/lib/design/parse'
 import { generateFromDesign, readImageAspectRatio } from '@/lib/design/generate'
@@ -65,6 +67,11 @@ const Body = z.object({
 export async function POST(req: Request) {
   const session = await auth()
   if (!session?.user?.id) return new Response('Unauthenticated', { status: 401 })
+
+  // Best-effort reaper: clear iterations stuck in 'generating' (crashed route or
+  // unguarded tail throw). Non-fatal — never block a new generate on it. A cron
+  // job can call reapStuckIterations() directly too.
+  try { await reapStuckIterations(db) } catch (e) { console.error('[generate] reaper failed:', e) }
 
   const parsed = Body.safeParse(await req.json())
   if (!parsed.success) return new Response('Invalid body', { status: 400 })
@@ -210,7 +217,9 @@ export async function POST(req: Request) {
   const lastReadyWithDesign = [...history]
     .reverse()
     .find((h) => h.status === 'ready' && h.validationReport)
-  const previousDesign = (lastReadyWithDesign?.validationReport ?? null) as
+  // Strip `_`-prefixed cache keys (_faces/_previews — base64 PNGs up to ~806KB)
+  // so they never get stringified into the LLM prompt.
+  const previousDesign = stripCacheKeys(lastReadyWithDesign?.validationReport ?? null) as
     | Awaited<ReturnType<typeof parseDesign>>
     | null
 
@@ -332,39 +341,51 @@ export async function POST(req: Request) {
     editWarnings = result.warnings
   }
 
-  const meshUrl = await persistMesh(finalMeshBytes, session.user.id, projectId, iteration.id)
+  // Guard the tail: persistMesh + the finalize updates run after the last
+  // per-stage try/catch, so a throw here would leave the row 'generating'
+  // (the gap the reaper cleans up — but mark it failed immediately too).
+  try {
+    const meshUrl = await persistMesh(finalMeshBytes, session.user.id, projectId, iteration.id)
 
-  // For imported designs, cache faces + previews so subsequent iterations
-  // don't re-segment the mesh or require the client to re-send previews.
-  const validationReport: Record<string, unknown> =
-    design.kind === 'imported' && importContext
-      ? { ...(design as object), _faces: importContext.faces, _previews: importContext.previewDataUrls }
-      : (design as unknown as Record<string, unknown>)
+    // For imported designs, cache faces + previews so subsequent iterations
+    // don't re-segment the mesh or require the client to re-send previews.
+    const validationReport: Record<string, unknown> =
+      design.kind === 'imported' && importContext
+        ? { ...(design as object), _faces: importContext.faces, _previews: importContext.previewDataUrls }
+        : (design as unknown as Record<string, unknown>)
 
-  await db.update(iterations)
-    .set({
-      status: 'ready',
-      meshBlobUrl: meshUrl,
-      validationReport,
+    await db.update(iterations)
+      .set({
+        status: 'ready',
+        meshBlobUrl: meshUrl,
+        validationReport,
+      })
+      .where(eq(iterations.id, iteration.id))
+    await db.update(projects)
+      .set({ currentIterationId: iteration.id, updatedAt: new Date() })
+      .where(eq(projects.id, projectId))
+
+    return Response.json({
+      strategy: 'generative',
+      iteration_id: iteration.id,
+      mesh_url: meshUrl,
+      mesh_base64: null,
+      design,
+      design_adjustments: designAdjustments,
+      warnings: editWarnings,
+      meta: {
+        kind: design.kind,
+        bbox_mm: metaBbox,
+      },
     })
-    .where(eq(iterations.id, iteration.id))
-  await db.update(projects)
-    .set({ currentIterationId: iteration.id, updatedAt: new Date() })
-    .where(eq(projects.id, projectId))
-
-  return Response.json({
-    strategy: 'generative',
-    iteration_id: iteration.id,
-    mesh_url: meshUrl,
-    mesh_base64: null,
-    design,
-    design_adjustments: designAdjustments,
-    warnings: editWarnings,
-    meta: {
-      kind: design.kind,
-      bbox_mm: metaBbox,
-    },
-  })
+  } catch (err) {
+    const e = err as Error
+    console.error('[generate] persist/finalize failed:', e.stack ?? e.message)
+    await db.update(iterations)
+      .set({ status: 'failed', error: `persist failed: ${e.message}` })
+      .where(eq(iterations.id, iteration.id))
+    return Response.json({ error: e.message, iteration_id: iteration.id }, { status: 500 })
+  }
 }
 
 async function persistMesh(
