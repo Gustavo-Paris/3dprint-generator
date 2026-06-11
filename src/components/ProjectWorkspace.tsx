@@ -278,8 +278,8 @@ export default function ProjectWorkspace({
   }
 
   return (
-    <main className="h-screen grid grid-cols-[420px_1fr]">
-      <aside className="border-r flex flex-col min-h-0">
+    <main className="h-screen flex flex-col lg:grid lg:grid-cols-[420px_1fr]">
+      <aside className="border-r flex flex-col min-h-0 max-h-[45vh] lg:max-h-none">
         <header className="p-4 border-b">
           <h1 className="font-semibold">{project.title}</h1>
         </header>
@@ -293,7 +293,7 @@ export default function ProjectWorkspace({
           pendingPreviews={pendingPreviews}
         />
       </aside>
-      <section className="relative bg-gray-50" data-testid="viewer-slot">
+      <section className="relative bg-gray-50 flex-1 min-h-0" data-testid="viewer-slot">
         <MeshViewer
           ref={meshViewerRef}
           positions={positions}
