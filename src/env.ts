@@ -26,10 +26,13 @@ if (!parsed.success) {
   throw new Error('Invalid environment variables')
 }
 
-// In production, AUTH_URL must pin the canonical origin so NextAuth never trusts
-// a client-supplied Host header for magic-link callbacks. trustHost alone is not a
-// mitigation (it is the same switch as AUTH_TRUST_HOST). Fail fast at boot instead.
-if (process.env.NODE_ENV === 'production' && !parsed.data.AUTH_URL) {
+// When actually serving in production, AUTH_URL must pin the canonical origin so
+// NextAuth never trusts a client-supplied Host header for magic-link callbacks.
+// trustHost alone is not a mitigation (same switch as AUTH_TRUST_HOST). Enforce at
+// serve time only — `next build` also sets NODE_ENV=production but has no incoming
+// requests, so exempt the build phase to avoid breaking CI/local builds.
+const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build'
+if (process.env.NODE_ENV === 'production' && !isBuildPhase && !parsed.data.AUTH_URL) {
   throw new Error(
     'AUTH_URL must be set in production (canonical origin, e.g. https://app.example.com) — ' +
       'it pins magic-link callback URLs against Host-header injection.',
