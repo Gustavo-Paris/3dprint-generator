@@ -286,9 +286,39 @@ export default function ProjectWorkspace({
   const [placeTreatment, setPlaceTreatment] = useState<'embossed' | 'engraved'>('embossed')
   const [placeSizeMm, setPlaceSizeMm] = useState(20)
   const [placing, setPlacing] = useState(false)
+  // Keyboard alternative to click-to-place: mm offsets from the mesh top-center.
+  const [logoX, setLogoX] = useState(0)
+  const [logoY, setLogoY] = useState(0)
 
-  async function applyLogoPlacement() {
-    if (!pick) return
+  /** Build a mesh-space placement from X/Y mm offsets relative to the mesh
+   *  bbox top-center (normal +Z). The keyboard alternative to a canvas click. */
+  function placementFromOffsets(x: number, y: number): {
+    point: [number, number, number]
+    normal: [number, number, number]
+  } {
+    if (!positions || positions.length === 0) {
+      return { point: [x, y, 0], normal: [0, 0, 1] }
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+    for (let i = 0; i < positions.length; i += 3) {
+      const px = positions[i], py = positions[i + 1], pz = positions[i + 2]
+      if (px < minX) minX = px
+      if (px > maxX) maxX = px
+      if (py < minY) minY = py
+      if (py > maxY) maxY = py
+      if (pz > maxZ) maxZ = pz
+    }
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
+    return { point: [cx + x, cy + y, maxZ], normal: [0, 0, 1] }
+  }
+
+  async function applyLogoPlacement(placement?: {
+    point: [number, number, number]
+    normal: [number, number, number]
+  }) {
+    const p = placement ?? pick
+    if (!p) return
     setPlacing(true)
     setError(null)
     try {
@@ -299,8 +329,8 @@ export default function ProjectWorkspace({
           projectId: project.id,
           message: `logo ${placeTreatment === 'engraved' ? 'gravado' : 'em relevo'} (posicionado no viewer)`,
           logoPlacement: {
-            point: pick.point,
-            normal: pick.normal,
+            point: p.point,
+            normal: p.normal,
             treatment: placeTreatment,
             sizeMm: placeSizeMm,
             depthMm: placeTreatment === 'engraved' ? 1.0 : 1.2,
@@ -383,6 +413,43 @@ export default function ProjectWorkspace({
           )}
         </div>
 
+        {/* Keyboard alternative to click-to-place: X/Y mm offsets from the mesh
+            top-center, feeding the SAME placement handler as a canvas click. */}
+        {positions && importedBaseAvailable && (
+          <fieldset className="absolute top-[4.5rem] left-4 z-10 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-2 text-xs shadow-sm text-gray-700">
+            <legend className="px-1 text-gray-600">Posição do logo (teclado)</legend>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1">
+                X (mm)
+                <input
+                  type="number"
+                  value={logoX}
+                  onChange={(e) => setLogoX(Number(e.target.value))}
+                  aria-label="Deslocamento X do logo em milímetros"
+                  className="border rounded px-2 min-h-11 w-20"
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                Y (mm)
+                <input
+                  type="number"
+                  value={logoY}
+                  onChange={(e) => setLogoY(Number(e.target.value))}
+                  aria-label="Deslocamento Y do logo em milímetros"
+                  className="border rounded px-2 min-h-11 w-20"
+                />
+              </label>
+              <button
+                onClick={() => applyLogoPlacement(placementFromOffsets(logoX, logoY))}
+                disabled={placing}
+                className="min-h-11 px-3 rounded bg-orange-600 text-white disabled:opacity-60"
+              >
+                Aplicar posição
+              </button>
+            </div>
+          </fieldset>
+        )}
+
         {/* Click-to-place panel */}
         {pickMode && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 flex items-center gap-3 text-sm">
@@ -414,7 +481,7 @@ export default function ProjectWorkspace({
                   mm
                 </label>
                 <button
-                  onClick={applyLogoPlacement}
+                  onClick={() => applyLogoPlacement()}
                   disabled={placing}
                   className="px-3 py-2 rounded bg-orange-600 text-white font-medium min-h-11 disabled:opacity-60"
                 >
@@ -458,8 +525,12 @@ export default function ProjectWorkspace({
         <SliceButton iterationId={iterationId} stl={stl} />
         {!error && <MeshValidityBanner report={validity} />}
         {error && (
-          <div className="absolute bottom-4 left-4 right-4 bg-red-50 text-red-900 border border-red-200 rounded p-3 text-xs">
-            <strong>Error:</strong> {error}
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="absolute bottom-4 left-4 right-4 bg-red-50 text-red-900 border border-red-200 rounded p-3 text-xs"
+          >
+            <strong>Erro:</strong> {error}
           </div>
         )}
       </section>

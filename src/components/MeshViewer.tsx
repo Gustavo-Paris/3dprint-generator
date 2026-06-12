@@ -211,7 +211,12 @@ const MeshViewerInner = forwardRef<MeshViewerHandle, MeshViewerProps>(function M
   }, [geometries])
 
   return (
-    <Canvas camera={{ position: [80, 80, 80], fov: 40 }}>
+    <Canvas
+      camera={{ position: [80, 80, 80], fov: 40 }}
+      aria-label="Visualização 3D do modelo. Arraste para girar, role para dar zoom."
+      role="img"
+      fallback={<span>Visualização 3D indisponível neste navegador.</span>}
+    >
       <ambientLight intensity={0.5} />
       <directionalLight position={[100, 100, 100]} intensity={0.8} />
       <DynamicGrid positions={positions} />
