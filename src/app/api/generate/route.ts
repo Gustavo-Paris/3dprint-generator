@@ -28,10 +28,12 @@ import { put } from '@vercel/blob'
 import { serialize3mf } from '@/lib/3mf/serialize-3mf'
 import { generateMesh, generateMeshFromImage, isMeshyConfigured } from '@/lib/meshy/client'
 import { apiError } from '@/lib/http/api-error'
+import { assertUrlIsPublic } from '@/lib/http/is-public-url'
+import { isOwnMeshUrl } from '@/lib/http/owns-mesh-url'
 import { createRequestLogger } from '@/lib/log'
 import { and, asc, eq } from 'drizzle-orm'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { join, sep } from 'node:path'
 import { z } from 'zod'
 
 export const runtime = 'nodejs'
@@ -87,12 +89,26 @@ export async function POST(req: Request) {
     .limit(1)
   if (!project) return apiError(404, 'not_found', 'Projeto não encontrado.')
 
+  // SSRF gate for a client-supplied external image URL (resolves DNS + blocks
+  // private/loopback/link-local/metadata). Up front so we reject before any DB write.
+  if (imageUrl && imageUrl.startsWith('http') && !(await assertUrlIsPublic(imageUrl))) {
+    return apiError(400, 'invalid_image_url', 'URL de imagem não permitida.')
+  }
+
   // Resolve image: fresh upload wins; else most recent image in this project.
   const history = await db
     .select()
     .from(iterations)
     .where(eq(iterations.projectId, projectId))
     .orderBy(asc(iterations.createdAt))
+
+  // Ownership gate for a client-supplied meshUrl: must be a URL THIS server
+  // issued for THIS user (a prior iteration mesh, or a fresh upload under the
+  // caller's namespace). Closes SSRF + cross-user access via a crafted meshUrl.
+  const ownMeshUrls = new Set(history.flatMap((h) => (h.meshBlobUrl ? [h.meshBlobUrl] : [])))
+  if (freshMeshUrl && !isOwnMeshUrl(freshMeshUrl, session.user.id, ownMeshUrls)) {
+    return apiError(403, 'forbidden_mesh', 'A malha não pertence a este projeto.')
+  }
 
   let effectiveImageUrl: string | null = imageUrl ?? null
   let effectiveDescription: string | null = null
@@ -139,11 +155,17 @@ export async function POST(req: Request) {
   if (effectiveImageUrl) {
     try {
       if (effectiveImageUrl.startsWith('http')) {
-        const r = await fetch(effectiveImageUrl)
+        const r = await fetch(effectiveImageUrl, { redirect: 'manual' })
         if (!r.ok) throw new Error(`fetch ${r.status}`)
         logoImageBuffer = Buffer.from(await r.arrayBuffer())
       } else {
-        logoImageBuffer = await readFile(join(process.cwd(), 'public', effectiveImageUrl))
+        const publicDir = join(process.cwd(), 'public')
+        const rel = effectiveImageUrl.startsWith('/') ? effectiveImageUrl.slice(1) : effectiveImageUrl
+        const real = await realpath(join(publicDir, rel))
+        if (real !== publicDir && !real.startsWith(publicDir + sep)) {
+          throw new Error('image path escapes public dir')
+        }
+        logoImageBuffer = await readFile(real)
       }
     } catch (err) {
       log.error('image fetch failed (continuing without logo)', err, { iterationId: iteration.id })

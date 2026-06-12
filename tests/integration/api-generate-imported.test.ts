@@ -108,7 +108,7 @@ describe('POST /api/generate (imported .3mf flow)', () => {
         body: JSON.stringify({
           projectId: '550e8400-e29b-41d4-a716-446655440000',
           message: 'scale it to half size',
-          meshUrl: 'http://mock/cube.3mf',
+          meshUrl: 'https://store1.public.blob.vercel-storage.com/test-user-id/uploads/cube.3mf',
           previewDataUrls: {
             top:   'data:image/png;base64,iVBOR',
             front: 'data:image/png;base64,iVBOR',
@@ -138,7 +138,7 @@ describe('POST /api/generate (imported .3mf flow)', () => {
         body: JSON.stringify({
           projectId: '550e8400-e29b-41d4-a716-446655440000',
           message: 'scale it',
-          meshUrl: 'http://mock/cube.3mf',
+          meshUrl: 'https://store1.public.blob.vercel-storage.com/test-user-id/uploads/cube.3mf',
           // No previewDataUrls!
         }),
       }),
