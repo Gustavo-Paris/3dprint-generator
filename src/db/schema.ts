@@ -88,7 +88,11 @@ export const iterations = pgTable('iterations', {
   projectCreatedIdx: index('iterations_project_id_created_at_idx').on(t.projectId, t.createdAt),
   statusCheck: check('iterations_status_check', sql`${t.status} IN ('generating','ready','failed','sliced')`),
   baseModeCheck: check('iterations_base_mode_check', sql`${t.baseMode} IS NULL OR ${t.baseMode} IN ('mesh_only','with_base')`),
-  strategyCheck: check('iterations_strategy_check', sql`${t.strategy} IN (${sql.join(iterationStrategies.map((s) => sql`${s}`), sql`, `)})`),
+  // Inline the values as SQL literals (sql.raw) — a CHECK constraint cannot carry
+  // bound parameters, and `sql`${s}`` would emit $1..$N placeholders that drizzle-kit
+  // bakes into the DDL, producing an un-appliable migration. The list is hardcoded
+  // safe identifiers, so raw interpolation is injection-free.
+  strategyCheck: check('iterations_strategy_check', sql`${t.strategy} IN (${sql.raw(iterationStrategies.map((s) => `'${s}'`).join(', '))})`),
 }))
 
 export const projectsRelations = relations(projects, ({ many, one }) => ({

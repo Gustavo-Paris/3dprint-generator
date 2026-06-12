@@ -36,6 +36,13 @@
       "when": 1778969673866,
       "tag": "0004_broad_bloodstorm",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781291219987,
+      "tag": "0005_narrow_sharon_carter",
+      "breakpoints": true
     }
   ]
 }
