@@ -93,7 +93,7 @@ export function mapHistoryToMessages(history: HistoryRow[]): ChatMsg[] {
     if (it.strategy === 'parametric' && it.jscadCode) {
       return [userMsg, {
         role: 'assistant' as const,
-        text: it.jscadCode,
+        text: 'Modelo paramétrico gerado',
         iterationId: it.id,
         strategy: 'parametric' as const,
         status: it.status,
@@ -371,9 +371,9 @@ export default function ProjectWorkspace({
           {positions && importedBaseAvailable && (
             <button
               onClick={() => { setPickMode((v) => !v); setPick(null) }}
-              className={`px-3 py-2 rounded text-sm font-medium border shadow-sm ${
+              className={`px-3 py-2 rounded text-sm font-medium border shadow-sm min-h-11 ${
                 pickMode
-                  ? 'bg-orange-500 text-white border-orange-600'
+                  ? 'bg-orange-600 text-white border-orange-700'
                   : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
               }`}
               title="Clique num ponto do modelo para posicionar o logo ali"
@@ -416,7 +416,7 @@ export default function ProjectWorkspace({
                 <button
                   onClick={applyLogoPlacement}
                   disabled={placing}
-                  className="px-3 py-1 rounded bg-orange-500 text-white font-medium disabled:opacity-60"
+                  className="px-3 py-2 rounded bg-orange-600 text-white font-medium min-h-11 disabled:opacity-60"
                 >
                   {placing ? 'Aplicando…' : 'Aplicar logo'}
                 </button>
