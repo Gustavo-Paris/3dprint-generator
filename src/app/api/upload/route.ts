@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { apiError } from '@/lib/http/api-error'
+import { sniffKind } from '@/lib/http/sniff-magic-bytes'
 import { put } from '@vercel/blob'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -44,6 +45,12 @@ export async function POST(req: Request) {
     : 'jpg'
   const id = randomUUID()
   const bytes = Buffer.from(await file.arrayBuffer())
+
+  // Don't trust the browser MIME/extension — verify the leading bytes match.
+  const sniffed = sniffKind(bytes)
+  if (sniffed === null || (isMesh && sniffed !== 'mesh') || (isImage && sniffed !== 'image')) {
+    return apiError(415, 'content_mismatch', 'O conteúdo do arquivo não corresponde ao tipo declarado.')
+  }
 
   let url: string
   if (process.env.BLOB_READ_WRITE_TOKEN) {
