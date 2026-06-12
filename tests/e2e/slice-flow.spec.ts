@@ -31,6 +31,19 @@ test('user generates a disc, slices it, sees stats and a download button', async
     })
   })
 
+  // The SliceButton probes /api/slicer-health on mount and disables itself when
+  // the slicer is unreachable. CI has no slicer at SLICER_URL (defaults to
+  // localhost:8787), so without this mock the button never enables and the slice
+  // never produces stats. We mock the slicer via /api/slice below, so report it
+  // healthy here too.
+  await page.route('**/api/slicer-health', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true }),
+    })
+  })
+
   // Mock /api/slice — don't invoke the real slicer in CI/E2E
   await page.route('**/api/slice', async (route) => {
     await route.fulfill({
