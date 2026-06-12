@@ -14,6 +14,6 @@ const LABEL_BY_KIND: Record<string, string> = {
 export function resultLabel(meta: GenerateMeta | undefined): string {
   const bb = meta?.bbox_mm
   const dims = bb ? ` (${bb.x.toFixed(0)}×${bb.y.toFixed(0)}×${bb.z.toFixed(0)} mm)` : ''
-  const base = (meta?.kind && LABEL_BY_KIND[meta.kind]) ?? 'Generated'
+  const base = (meta?.kind && LABEL_BY_KIND[meta.kind]) ?? 'Modelo gerado'
   return `${base}${dims}`
 }

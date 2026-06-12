@@ -182,7 +182,7 @@ export default function Chat({
         meshBase64: body.mesh_base64,
       })
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', text: `Error: ${(e as Error).message}` }])
+      setMessages((m) => [...m, { role: 'assistant', text: `Erro: ${(e as Error).message}` }])
     } finally {
       setBusy(false)
     }
@@ -212,7 +212,7 @@ export default function Chat({
             </div>
             {m.role === 'assistant' && m.strategy && (
               <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-gray-200 text-gray-700 uppercase align-top">
-                {badgeFor(m.design)}
+                {badgeFor(m.design) === 'meshy' ? 'imagem' : 'paramétrico'}
               </span>
             )}
             {m.role === 'assistant' && m.designAdjustments && m.designAdjustments.length > 0 && (
@@ -245,8 +245,8 @@ export default function Chat({
             )}
             {m.role === 'assistant' && m.design != null && editingDesign?.sourceMsgIndex !== i && (
               <details className="mt-2 max-w-[90%] border-l-2 border-blue-400 bg-blue-50 px-3 py-2 text-left">
-                <summary className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold cursor-pointer select-none">
-                  Design interpretado pelo LLM — {designSummary(m.design)}
+                <summary className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold cursor-pointer select-none min-h-11 flex items-center">
+                  Como interpretamos seu pedido — {designSummary(m.design)}
                 </summary>
                 <pre className="mt-1.5 text-[11px] text-gray-800 whitespace-pre-wrap overflow-x-auto">
                   {JSON.stringify(m.design, null, 2)}
@@ -261,9 +261,9 @@ export default function Chat({
                       jsonText: JSON.stringify(m.design, null, 2),
                       error: null,
                     })}
-                    className="text-[10px] uppercase tracking-wide text-blue-700 border border-blue-300 rounded px-2 py-0.5 hover:bg-blue-100 whitespace-nowrap"
+                    className="text-[10px] uppercase tracking-wide text-blue-700 border border-blue-300 rounded px-2 py-0.5 min-h-11 hover:bg-blue-100 whitespace-nowrap"
                   >
-                    Editar JSON
+                    Ajustar parâmetros
                   </button>
                 </div>
               </details>
@@ -271,7 +271,7 @@ export default function Chat({
             {m.role === 'assistant' && editingDesign?.sourceMsgIndex === i && (
               <div className="mt-2 max-w-[90%] border-l-2 border-blue-600 bg-blue-50 px-3 py-2 text-left">
                 <div className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold mb-1.5">
-                  Editar design — pula o LLM, vai direto pro generator
+                  Ajustar parâmetros — aplica direto, sem reinterpretar
                 </div>
                 <textarea
                   value={editingDesign.jsonText}
@@ -318,7 +318,7 @@ export default function Chat({
             )}
           </div>
         ))}
-        {busy && <div className="text-gray-400 text-xs">Generating…</div>}
+        {busy && <div className="text-gray-500 text-xs">Gerando…</div>}
       </div>
 
       {pendingMeshUrl && (
@@ -351,8 +351,8 @@ export default function Chat({
           </span>
           <button
             onClick={() => setAttachedImage(null)}
-            className="text-gray-500 hover:text-red-500 text-sm px-2"
-            aria-label="Remove attached image"
+            className="text-gray-500 hover:text-red-500 text-sm px-2 min-h-11 min-w-11"
+            aria-label="Remover imagem anexada"
           >
             ✕
           </button>
@@ -378,26 +378,27 @@ export default function Chat({
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={busy || uploading}
-          className="px-3 py-2 border rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          aria-label="Attach image"
-          title="Attach image"
+          className="px-3 py-2 border rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50 min-h-11"
+          aria-label="Anexar imagem"
+          title="Anexar imagem"
         >
           {uploading ? '⏳' : '📎'}
         </button>
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Describe what to build..."
-          className="flex-1 border rounded px-3 py-2"
+          placeholder='Descreva o que quer criar — ex.: "porta-lata cilíndrico com logo"'
+          aria-label="Descreva o que quer criar"
+          className="flex-1 border rounded px-3 py-2 min-h-11"
           disabled={busy}
           data-testid="chat-input"
         />
         <button
           type="submit"
-          className="bg-black text-white rounded px-4 py-2 disabled:opacity-50"
+          className="bg-black text-white rounded px-4 py-2 min-h-11 disabled:opacity-50"
           disabled={busy || uploading || (!draft.trim() && !attachedImage)}
         >
-          Send
+          Enviar
         </button>
       </form>
 

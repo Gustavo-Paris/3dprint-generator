@@ -11,8 +11,8 @@ describe('resultLabel', () => {
     expect(resultLabel({ kind: 'disc' })).toBe('Disco / medalha')
   })
 
-  it('does not throw and returns "Generated" when meta itself is undefined (legacy/meta-less response)', () => {
-    expect(resultLabel(undefined)).toBe('Generated')
+  it('does not throw and returns the PT-BR fallback when meta itself is undefined (legacy/meta-less response)', () => {
+    expect(resultLabel(undefined)).toBe('Modelo gerado')
   })
 
   it('labels hollow_cylinder and flat_plate kinds', () => {
