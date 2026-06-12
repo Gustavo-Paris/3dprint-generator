@@ -54,11 +54,28 @@ function parseModelXml(xml: string): MeshBodyData[] {
       vertices.push([parseFloat(vMatch[1]), parseFloat(vMatch[2]), parseFloat(vMatch[3])])
     }
 
-    // Parse triangles and infer extruder when p1 is present
+    // Parse triangles and infer extruder when p1 is present.
+    // Two-pass: count valid triangles first so we can allocate the exact
+    // Float32Array up front and write by index (no growing number[] + no
+    // per-triangle spread).
     let extruder: 'A' | 'B' = 'A'
-    const positionsList: number[] = []
-    let tMatch: RegExpExecArray | null
+
+    // Pass 1: count valid triangles (all three verts resolvable).
+    let triCount = 0
     triangleRegex.lastIndex = 0
+    let cMatch: RegExpExecArray | null
+    while ((cMatch = triangleRegex.exec(bodyContent)) !== null) {
+      const a = parseInt(cMatch[1], 10)
+      const b = parseInt(cMatch[2], 10)
+      const c = parseInt(cMatch[3], 10)
+      if (vertices[a] && vertices[b] && vertices[c]) triCount++
+    }
+
+    // Pass 2: fill the preallocated buffer (9 floats per triangle).
+    const positions = new Float32Array(triCount * 9)
+    let w = 0
+    triangleRegex.lastIndex = 0
+    let tMatch: RegExpExecArray | null
     while ((tMatch = triangleRegex.exec(bodyContent)) !== null) {
       const v1 = parseInt(tMatch[1], 10)
       const v2 = parseInt(tMatch[2], 10)
@@ -70,13 +87,15 @@ function parseModelXml(xml: string): MeshBodyData[] {
       const pt2 = vertices[v2]
       const pt3 = vertices[v3]
       if (pt1 && pt2 && pt3) {
-        positionsList.push(...pt1, ...pt2, ...pt3)
+        positions[w++] = pt1[0]; positions[w++] = pt1[1]; positions[w++] = pt1[2]
+        positions[w++] = pt2[0]; positions[w++] = pt2[1]; positions[w++] = pt2[2]
+        positions[w++] = pt3[0]; positions[w++] = pt3[1]; positions[w++] = pt3[2]
       }
     }
 
-    if (positionsList.length > 0) {
+    if (positions.length > 0) {
       bodies.push({
-        positions: new Float32Array(positionsList),
+        positions,
         extruder,
         label: `Body ${objId}`,
       })
