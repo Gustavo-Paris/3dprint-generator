@@ -1,8 +1,9 @@
 ---
 uid: feat-004
-status: open
+status: done
 priority: low
 scheduled: 2026-05-18
+completed: 2026-06-12
 timeEstimate: 30
 pomodoros: 0
 contexts:
