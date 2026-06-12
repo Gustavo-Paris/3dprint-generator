@@ -15,13 +15,12 @@
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
-import { env } from '@/env'
 import { flexify } from '@/lib/flexify'
 import { apiError } from '@/lib/http/api-error'
 import { createRequestLogger } from '@/lib/log'
-import { put } from '@vercel/blob'
+import { persistMesh } from '@/lib/storage/persist'
 import { and, desc, eq } from 'drizzle-orm'
-import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 import { z } from 'zod'
 
@@ -181,22 +180,3 @@ export async function POST(req: Request) {
   })
 }
 
-async function persistMesh(
-  bytes: Uint8Array,
-  userId: string,
-  projectId: string,
-  iterationId: string,
-): Promise<string> {
-  if (env.BLOB_READ_WRITE_TOKEN) {
-    const blob = await put(`${userId}/${projectId}/${iterationId}.3mf`, Buffer.from(bytes), {
-      access: 'public',
-      addRandomSuffix: false,
-      contentType: 'application/octet-stream',
-    })
-    return blob.url
-  }
-  const dir = join(process.cwd(), 'public', 'meshes')
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, `${iterationId}.3mf`), Buffer.from(bytes))
-  return `/meshes/${iterationId}.3mf`
-}
