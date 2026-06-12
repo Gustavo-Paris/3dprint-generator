@@ -42,8 +42,8 @@ test('generative request goes through Meshy mock and renders the canvas', async 
   await page.fill('[data-testid="chat-input"]', 'iron man helmet')
   await page.locator('[data-testid="chat-input"]').press('Enter')
 
-  // The strategy badge ("meshy") should appear in chat history
-  await expect(page.locator('[data-testid="chat-history"]')).toContainText(/meshy/i, { timeout: 10_000 })
+  // The strategy badge for a freeform design renders as "imagem" (badgeFor → PT-BR)
+  await expect(page.locator('[data-testid="chat-history"]')).toContainText(/imagem/i, { timeout: 10_000 })
 
   // And the viewer canvas should render
   await expect(page.locator('canvas')).toBeVisible({ timeout: 10_000 })

@@ -70,12 +70,13 @@ test('user uploads image with trophy keyword → renders generated trophy with b
   await page.fill('[data-testid="chat-input"]', 'troféu da logo da empresa')
   await page.locator('[data-testid="chat-input"]').press('Enter')
 
-  // Generative result with no parametric kind → resultLabel(meta) renders "Generated".
-  await expect(page.locator('[data-testid="chat-history"]')).toContainText(/generated/i, {
+  // Generative result with no parametric kind → resultLabel(meta) renders the
+  // PT-BR fallback "Modelo gerado".
+  await expect(page.locator('[data-testid="chat-history"]')).toContainText(/modelo gerado/i, {
     timeout: 10_000,
   })
-  // Strategy badge meshy should appear (Chat.tsx, strategy === 'generative').
-  await expect(page.locator('[data-testid="chat-history"]')).toContainText(/meshy/i)
+  // Strategy badge for a freeform/image design renders as "imagem" (badgeFor → PT-BR).
+  await expect(page.locator('[data-testid="chat-history"]')).toContainText(/imagem/i)
   // Canvas should render the inline mesh_base64 STL (no network fetch).
   await expect(page.locator('canvas')).toBeVisible({ timeout: 10_000 })
 })
