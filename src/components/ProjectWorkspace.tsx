@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { InferSelectModel } from 'drizzle-orm'
 import type { projects as projectsTable, iterations as iterationsTable } from '@/db/schema'
+import type { HistoryRow } from '@/db/history-columns'
 import Chat, { type ChatResult, type PreviewBundle } from './Chat'
 import MeshViewer, { type MeshBody, type MeshViewerHandle } from './MeshViewer'
 import SliceButton from './SliceButton'
@@ -48,7 +49,7 @@ export function hasImportedBase(
 /** Build the chat transcript from iteration history, branching on status so a
  *  failed row shows its error and an in-flight row shows a spinner label —
  *  instead of every row reading as "Generated". */
-export function mapHistoryToMessages(history: Iteration[]): ChatMsg[] {
+export function mapHistoryToMessages(history: HistoryRow[]): ChatMsg[] {
   return history.flatMap((it) => {
     const userMsg: ChatMsg = {
       role: 'user',
@@ -99,7 +100,7 @@ export default function ProjectWorkspace({
   initialHistory,
 }: {
   project: Project
-  initialHistory: Iteration[]
+  initialHistory: HistoryRow[]
 }) {
   const lastReady = initialHistory.findLast(
     (it) => it.status === 'ready' || it.status === 'sliced',

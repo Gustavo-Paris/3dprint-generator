@@ -4,6 +4,7 @@ import { projects, iterations } from '@/db/schema'
 import { and, asc, eq } from 'drizzle-orm'
 import { notFound, redirect } from 'next/navigation'
 import { isUuid } from '@/lib/validation/uuid'
+import { historyColumns } from '@/db/history-columns'
 import ProjectWorkspace from '@/components/ProjectWorkspace'
 
 export default async function ProjectPage({
@@ -27,7 +28,7 @@ export default async function ProjectPage({
   if (!project) notFound()
 
   const history = await db
-    .select()
+    .select(historyColumns)
     .from(iterations)
     .where(eq(iterations.projectId, project.id))
     .orderBy(asc(iterations.createdAt))
