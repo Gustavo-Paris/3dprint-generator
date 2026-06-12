@@ -114,6 +114,8 @@ interface MeshViewerProps {
   onPick?: (point: [number, number, number], normal: [number, number, number]) => void
   /** Mesh-space point to mark with a sphere (the last pick). */
   pickMarker?: [number, number, number] | null
+  /** When true, overlay a spinner while the mesh worker is hydrating. */
+  loading?: boolean
 }
 
 /**
@@ -174,6 +176,7 @@ const MeshViewerInner = forwardRef<MeshViewerHandle, MeshViewerProps>(function M
   pickMode = false,
   onPick,
   pickMarker = null,
+  loading = false,
 }, ref) {
   const parsedBodies = useMemo(() => {
     if (bodies && bodies.length > 0) return bodies
@@ -211,12 +214,25 @@ const MeshViewerInner = forwardRef<MeshViewerHandle, MeshViewerProps>(function M
   }, [geometries])
 
   return (
-    <Canvas
-      camera={{ position: [80, 80, 80], fov: 40 }}
-      aria-label="Visualização 3D do modelo. Arraste para girar, role para dar zoom."
-      role="img"
-      fallback={<span>Visualização 3D indisponível neste navegador.</span>}
-    >
+    <div className="relative h-full w-full">
+      {loading && (
+        <div
+          className="absolute inset-0 z-30 flex items-center justify-center bg-white/60 backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="flex items-center gap-2 text-sm text-gray-700">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-700" />
+            Gerando visualização…
+          </span>
+        </div>
+      )}
+      <Canvas
+        camera={{ position: [80, 80, 80], fov: 40 }}
+        aria-label="Visualização 3D do modelo. Arraste para girar, role para dar zoom."
+        role="img"
+        fallback={<span>Visualização 3D indisponível neste navegador.</span>}
+      >
       <ambientLight intensity={0.5} />
       <directionalLight position={[100, 100, 100]} intensity={0.8} />
       <DynamicGrid positions={positions} />
@@ -260,7 +276,8 @@ const MeshViewerInner = forwardRef<MeshViewerHandle, MeshViewerProps>(function M
         <GizmoViewport labelColor="white" axisHeadScale={1} />
       </GizmoHelper>
       <CaptureHelper ref={ref} />
-    </Canvas>
+      </Canvas>
+    </div>
   )
 })
 MeshViewerInner.displayName = 'MeshViewer'

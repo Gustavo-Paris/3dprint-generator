@@ -389,6 +389,7 @@ export default function ProjectWorkspace({
           pickMode={pickMode}
           onPick={(point, normal) => setPick({ point, normal })}
           pickMarker={pick?.point ?? null}
+          loading={!!iterationId && positions === null && !error}
         />
         <div className="absolute top-4 left-4 z-10 flex gap-2">
           <DownloadStlButton iterationId={iterationId} stl={stl} />
