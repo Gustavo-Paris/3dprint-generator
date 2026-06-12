@@ -15,7 +15,7 @@ import type { Geom3 } from '@jscad/modeling/src/geometries/types'
 import type { Op } from '@/lib/design/schema'
 import type { BaseMesh } from '../types'
 import { compileUserModule } from '@/lib/jscad/sandbox'
-import { baseMeshToGeom3, geom3ToBaseMesh } from './_shared'
+import { baseMeshToGeom3, geom3ToBaseMesh, loadJscad } from './_shared'
 
 type JscadRawParams = Extract<Op, { op: 'jscad_raw' }>
 
@@ -27,7 +27,7 @@ export async function applyJscadRaw(
   options: { timeoutMs?: number } = {},
 ): Promise<BaseMesh> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT
-  const jscad = await import('@jscad/modeling')
+  const jscad = await loadJscad()
 
   const factory = compileUserModule(op.code)
   const userMod = factory(jscad)

@@ -1,6 +1,6 @@
 import type { Op } from '@/lib/design/schema'
 import type { BaseMesh, SemanticFace } from '../types'
-import { baseMeshToGeom3, geom3ToBaseMesh, makeFrame, orientAlongNormal } from './_shared'
+import { baseMeshToGeom3, geom3ToBaseMesh, loadJscad, makeFrame, orientAlongNormal } from './_shared'
 import type Geom3 from '@jscad/modeling/src/geometries/geom3/type'
 
 type HoleParams = Extract<Op, { op: 'hole' }>
@@ -13,7 +13,7 @@ export async function applyHole(
   const face = faces[op.faceId]
   if (!face) throw new Error(`face ${op.faceId} out of range (have ${faces.length})`)
 
-  const { primitives, booleans, transforms } = await import('@jscad/modeling')
+  const { primitives, booleans, transforms } = await loadJscad()
   const base = await baseMeshToGeom3(mesh) as Geom3
 
   // Depth: 'through' = bbox diagonal * 2 to guarantee passage

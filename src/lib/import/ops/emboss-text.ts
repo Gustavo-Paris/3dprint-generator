@@ -1,6 +1,6 @@
 import type { Op } from '@/lib/design/schema'
 import type { BaseMesh, SemanticFace } from '../types'
-import { baseMeshToGeom3, geom3ToBaseMesh } from './_shared'
+import { baseMeshToGeom3, geom3ToBaseMesh, loadJscad } from './_shared'
 import type Geom3 from '@jscad/modeling/src/geometries/geom3/type'
 
 type EmbossTextParams = Extract<Op, { op: 'emboss_text' }>
@@ -32,7 +32,7 @@ export async function applyEmbossText(
     transforms,
     geometries,
     expansions,
-  } = await import('@jscad/modeling')
+  } = await loadJscad()
 
   // vectorText returns Array<[[x1,y1],[x2,y2]]> — one 2-point stroke per segment.
   const segments = text.vectorText({ height: op.sizeMm }, op.text) as Array<[[number, number], [number, number]]>

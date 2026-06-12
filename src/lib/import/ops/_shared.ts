@@ -45,7 +45,7 @@ export function recomputeMeshDerived(
 
 /** Resolve @jscad/modeling regardless of CJS-vs-ESM default-export shape.
  *  Mirrors the workaround in src/lib/design/generate.ts. */
-async function loadJscad() {
+export async function loadJscad() {
   const ns = (await import('@jscad/modeling')) as unknown as {
     default?: typeof import('@jscad/modeling')
   } & typeof import('@jscad/modeling')
