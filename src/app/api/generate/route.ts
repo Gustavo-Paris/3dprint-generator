@@ -21,7 +21,8 @@ import { parseDesign } from '@/lib/design/parse'
 import { generateFromDesign, readImageAspectRatio } from '@/lib/design/generate'
 import { sanitizeDesign } from '@/lib/design/sanitize'
 import { tryQuickModify } from '@/lib/design/quick-modifier'
-import { Design } from '@/lib/design/schema'
+import type { Design } from '@/lib/design/schema'
+import { Body } from './body-schema'
 import type { PreviewBundle } from '@/lib/design/parse-import'
 import type { SemanticFace } from '@/lib/import/types'
 import { put } from '@vercel/blob'
@@ -34,39 +35,9 @@ import { createRequestLogger } from '@/lib/log'
 import { and, asc, eq } from 'drizzle-orm'
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { join, sep } from 'node:path'
-import { z } from 'zod'
 
 export const runtime = 'nodejs'
 export const maxDuration = 600
-
-const Body = z.object({
-  projectId: z.string().uuid(),
-  message: z.string().min(1).max(2000),
-  imageUrl: z.string().optional(),
-  /** Fresh .3mf upload URL or relative path — triggers the imported-mesh edit branch. */
-  meshUrl: z.string().min(1).optional(),
-  /** Client-captured 4-angle PNG previews (data URLs) for the first import request. */
-  previewDataUrls: z.object({
-    top: z.string(),
-    front: z.string(),
-    right: z.string(),
-    iso: z.string(),
-  }).optional(),
-  /** Bypass the LLM parser. The generator builds straight from this Design
-   * (still sanity-clamped). Useful for direct numeric overrides
-   * ("sizeRatio EXACTLY 0.85") that natural-language iteration handles
-   * poorly. */
-  designOverride: Design.optional(),
-  /** Click-to-place: an exact point + normal on the imported mesh (mesh space)
-   * where the logo should go. Bypasses the LLM and semantic faces entirely. */
-  logoPlacement: z.object({
-    point: z.tuple([z.number(), z.number(), z.number()]),
-    normal: z.tuple([z.number(), z.number(), z.number()]),
-    treatment: z.enum(['embossed', 'engraved', 'through_cut']).default('embossed'),
-    sizeMm: z.number().positive().default(20),
-    depthMm: z.number().positive().default(1),
-  }).optional(),
-})
 
 export async function POST(req: Request) {
   const log = createRequestLogger('generate')
