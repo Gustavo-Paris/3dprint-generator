@@ -87,6 +87,7 @@ export default function Chat({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   /** When set, user is editing this message's design JSON in an inline panel. */
   const [editingDesign, setEditingDesign] = useState<{
     sourceMsgIndex: number
@@ -106,6 +107,7 @@ export default function Chat({
     e.target.value = '' // reset so same file can be re-selected
     const isMesh = file.name.toLowerCase().endsWith('.3mf')
     setUploading(true)
+    setUploadError(null)
     try {
       const form = new FormData()
       form.append('file', file)
@@ -120,7 +122,8 @@ export default function Chat({
         setAttachedImage({ url, file, carried: false })
       }
     } catch (err) {
-      alert(`Upload failed: ${(err as Error).message}`)
+      console.error('[Chat] upload failed', err)
+      setUploadError('Falha no upload. Verifique o arquivo e tente de novo.')
     } finally {
       setUploading(false)
     }
@@ -353,6 +356,22 @@ export default function Chat({
             onClick={() => setAttachedImage(null)}
             className="text-gray-500 hover:text-red-500 text-sm px-2 min-h-11 min-w-11"
             aria-label="Remover imagem anexada"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {uploadError && (
+        <div
+          role="alert"
+          className="px-4 pb-2 pt-2 flex items-center gap-2 border-t bg-red-50 text-red-900 text-xs"
+        >
+          <span className="flex-1">{uploadError}</span>
+          <button
+            onClick={() => setUploadError(null)}
+            className="px-2 min-h-11 min-w-11 text-red-700 hover:text-red-900"
+            aria-label="Fechar aviso"
           >
             ✕
           </button>
