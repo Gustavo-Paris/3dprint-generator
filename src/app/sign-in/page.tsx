@@ -52,9 +52,9 @@ export default async function SignIn({
           required
           placeholder="voce@exemplo.com"
           aria-label="E-mail"
-          className="w-full border rounded px-3 py-2"
+          className="w-full border rounded px-3 py-2 min-h-11"
         />
-        <button type="submit" className="w-full bg-black text-white rounded py-2">
+        <button type="submit" className="w-full bg-black text-white rounded py-2 min-h-11">
           Enviar link mágico
         </button>
       </form>
