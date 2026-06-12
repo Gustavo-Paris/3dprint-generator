@@ -72,6 +72,9 @@ public/test-*.stl
 /debug-*.ts
 /test-*.ts
 
+# ad-hoc debug scripts (kept locally, not tracked)
+/scripts/debug/
+
 # external tool state
 .antigravitycli/
 .pgdk/
