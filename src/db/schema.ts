@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, uuid, jsonb, primaryKey, integer } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
+import { iterationStrategies } from './strategy'
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -61,7 +62,7 @@ export const iterations = pgTable('iterations', {
   imageBlobUrl: text('image_blob_url'),
   jscadCode: text('jscad_code'),
   validationReport: jsonb('validation_report'),
-  strategy: text('strategy', { enum: ['parametric', 'generative'] })
+  strategy: text('strategy', { enum: iterationStrategies })
     .notNull()
     .default('parametric'),
   meshBlobUrl: text('mesh_blob_url'),

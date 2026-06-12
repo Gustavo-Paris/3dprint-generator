@@ -15,6 +15,7 @@ import { auth } from '@/auth'
 import { env } from '@/env'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
+import { designKindToStrategy } from '@/db/strategy'
 import { reapStuckIterations } from '@/lib/db/reap-stuck-iterations'
 import { stripCacheKeys } from '@/lib/design/strip-cache-keys'
 import { describeImage } from '@/lib/prompt/describe-image'
@@ -342,6 +343,8 @@ export async function POST(req: Request) {
         status: 'ready',
         meshBlobUrl: meshUrl,
         validationReport,
+        // Record the REAL design kind (was always 'generative' before).
+        strategy: designKindToStrategy(design.kind),
       })
       .where(eq(iterations.id, iteration.id))
     await db.update(projects)

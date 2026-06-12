@@ -165,6 +165,7 @@ export async function POST(req: Request) {
       status: 'ready',
       meshBlobUrl: meshUrlOut,
       validationReport: { kind: 'flexified', ...report },
+      strategy: 'flexified',
     })
     .where(eq(iterations.id, iteration.id))
   await db.update(projects)
