@@ -27,15 +27,15 @@ import type { Design } from '@/lib/design/schema'
 import { Body } from './body-schema'
 import type { PreviewBundle } from '@/lib/design/parse-import'
 import type { SemanticFace } from '@/lib/import/types'
-import { put } from '@vercel/blob'
 import { serialize3mf } from '@/lib/3mf/serialize-3mf'
 import { generateMesh, generateMeshFromImage, isMeshyConfigured } from '@/lib/meshy/client'
 import { apiError } from '@/lib/http/api-error'
 import { assertUrlIsPublic } from '@/lib/http/is-public-url'
 import { isOwnMeshUrl } from '@/lib/http/owns-mesh-url'
+import { persistMesh } from '@/lib/storage/persist'
 import { createRequestLogger } from '@/lib/log'
 import { and, asc, eq } from 'drizzle-orm'
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 
 export const runtime = 'nodejs'
@@ -371,27 +371,4 @@ export async function POST(req: Request) {
       .where(eq(iterations.id, iteration.id))
     return apiError(500, 'persist_failed', 'Não foi possível salvar a peça gerada.', { iteration_id: iteration.id })
   }
-}
-
-async function persistMesh(
-  bytes: Uint8Array,
-  userId: string,
-  projectId: string,
-  iterationId: string,
-): Promise<string> {
-  const is3mf = bytes[0] === 0x50 && bytes[1] === 0x4b
-  const ext = is3mf ? '3mf' : 'stl'
-  const contentType = is3mf ? 'application/octet-stream' : 'model/stl'
-  if (env.BLOB_READ_WRITE_TOKEN) {
-    const blob = await put(`${userId}/${projectId}/${iterationId}.${ext}`, Buffer.from(bytes), {
-      access: 'public',
-      addRandomSuffix: false,
-      contentType,
-    })
-    return blob.url
-  }
-  const dir = join(process.cwd(), 'public', 'meshes')
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, `${iterationId}.${ext}`), Buffer.from(bytes))
-  return `/meshes/${iterationId}.${ext}`
 }
