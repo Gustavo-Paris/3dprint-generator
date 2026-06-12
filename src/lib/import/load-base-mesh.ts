@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { resolveInsidePublic } from '@/lib/http/resolve-inside-public'
 import { parse3mf } from '@/lib/3mf/parse-3mf'
 import type { BaseMesh } from './types'
 
@@ -14,10 +14,9 @@ export async function loadBaseMeshFromUrl(url: string): Promise<BaseMesh> {
     if (!res.ok) throw new Error(`fetch ${url} failed: ${res.status}`)
     buf = new Uint8Array(await res.arrayBuffer())
   } else {
-    // Local path served by Next from `public/`. Strip the leading `/` and
-    // resolve relative to cwd's `public/` directory.
-    const rel = url.startsWith('/') ? url.slice(1) : url
-    buf = new Uint8Array(await readFile(join(process.cwd(), 'public', rel)))
+    // Local path served by Next from `public/`, with traversal containment.
+    const filePath = resolveInsidePublic(url)
+    buf = new Uint8Array(await readFile(filePath))
   }
   if (buf.byteLength > MAX_BYTES) {
     throw new Error(`3MF exceeds ${MAX_BYTES / 1024 / 1024}MB limit`)

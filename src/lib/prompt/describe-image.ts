@@ -1,7 +1,7 @@
 import { generateText } from 'ai'
 import { getClassifierModel } from '@/lib/llm/model'
+import { resolveInsidePublic } from '@/lib/http/resolve-inside-public'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 
 /**
  * Describe an image in 1-3 sentences optimized for use as a 3D-generation prompt.
@@ -20,7 +20,7 @@ export async function describeImage(imageUrl: string): Promise<string> {
   if (imageUrl.startsWith('http')) {
     resolvedUrl = imageUrl
   } else if (imageUrl.startsWith('/uploads/')) {
-    const filePath = join(process.cwd(), 'public', imageUrl)
+    const filePath = resolveInsidePublic(imageUrl)
     const bytes = await readFile(filePath)
     const ext = imageUrl.split('.').pop()?.toLowerCase() ?? 'png'
     const mime =
