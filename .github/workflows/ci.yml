@@ -9,8 +9,19 @@ jobs:
   quality:
     name: lint · types · unit
     runs-on: ubuntu-latest
-    # Dummy values so src/env.ts validation passes if a tested module imports it.
-    # NODE_ENV is 'test' here, so the production AUTH_URL guard does not apply.
+    # A few integration tests (db-schema, api-generate, api-generate-3mf) hit a
+    # real Postgres — they mirror the local Docker DB. The rest are hermetic.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/app
       AUTH_SECRET: ci-secret-not-used-in-prod
@@ -29,6 +40,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: npx tsc --noEmit
+      - run: pnpm db:migrate
       - run: pnpm test:coverage
 
   e2e:

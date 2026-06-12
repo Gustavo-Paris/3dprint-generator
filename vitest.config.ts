@@ -9,6 +9,12 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.ts', 'tests/integration/**/*.test.ts'],
     exclude: ['tests/e2e/**'],
     setupFiles: ['tests/setup-env.ts'],
+    // Mesh booleans (manifold-3d WASM) and the DB integration setup hooks are
+    // CPU-heavy; on slower CI runners they blow past Vitest's 5s default. A
+    // generous ceiling only delays genuinely-hung tests — passing tests are
+    // unaffected.
+    testTimeout: 30000,
+    hookTimeout: 30000,
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'html'],

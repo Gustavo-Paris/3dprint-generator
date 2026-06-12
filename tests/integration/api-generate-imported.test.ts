@@ -57,7 +57,14 @@ vi.mock('@/db', () => ({
     })),
     update: vi.fn(() => ({
       set: vi.fn(() => ({
-        where: vi.fn(async () => undefined),
+        // The route both awaits `.where(...)` directly (status updates) and
+        // chains `.where(...).returning()` (reapStuckIterations). Return a
+        // thenable that also exposes `.returning()` to satisfy both shapes.
+        where: vi.fn(() =>
+          Object.assign(Promise.resolve([] as unknown[]), {
+            returning: vi.fn(async () => [] as unknown[]),
+          }),
+        ),
       })),
     })),
   },
