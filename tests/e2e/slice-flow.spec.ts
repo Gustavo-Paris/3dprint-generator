@@ -55,10 +55,10 @@ test('user generates a disc, slices it, sees stats and a download button', async
   await expect(page.locator('[data-testid="chat-history"]')).toContainText('Disco / medalha', { timeout: 10_000 })
 
   // Click slice
-  await page.click('button:has-text("Slice for printing")')
+  await page.click('button:has-text("Fatiar para impressão")')
 
   // Wait for stats panel
   await expect(page.locator('text=42 min')).toBeVisible({ timeout: 10_000 })
   await expect(page.locator('text=7.3 g')).toBeVisible()
-  await expect(page.locator('button:has-text("Download .3mf")')).toBeVisible()
+  await expect(page.locator('button:has-text("Baixar .3mf")')).toBeVisible()
 })

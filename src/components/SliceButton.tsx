@@ -46,7 +46,10 @@ export default function SliceButton({
         // /api/slice route be the authoritative gate, instead of falsely blocking.
         if (!res.ok) return
         const body = (await res.json()) as { ok?: boolean }
-        if (!cancelled) setSlicerOk(body.ok === true)
+        if (!cancelled) {
+          setSlicerOk(body.ok === true)
+          if (body.ok !== true) console.warn('[SliceButton] slicer health reported offline (check SLICER_URL)')
+        }
       } catch {
         // App-origin network blip — indeterminate, do not hard-block.
       }
@@ -111,7 +114,7 @@ export default function SliceButton({
         title={slicerOk === false ? 'Slicer offline — fatiamento indisponível' : undefined}
         className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-50 shadow"
       >
-        {busy ? 'Slicing…' : 'Slice for printing'}
+        {busy ? 'Fatiando…' : 'Fatiar para impressão'}
       </button>
       {busy && (
         <div className="bg-white border rounded px-3 py-2 text-xs text-gray-600 shadow max-w-xs">
@@ -120,7 +123,7 @@ export default function SliceButton({
       )}
       {slicerOk === false && (
         <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded px-3 py-2 text-xs max-w-xs">
-          Slicer offline — fatiamento indisponível. Verifique o serviço (SLICER_URL).
+          Serviço de fatiamento indisponível no momento. Tente novamente em instantes.
         </div>
       )}
       {error && (
@@ -131,18 +134,18 @@ export default function SliceButton({
       {result && (
         <div className="bg-white border rounded p-3 text-xs shadow space-y-2">
           <div>
-            <span className="text-gray-500">Print time: </span>
+            <span className="text-gray-600">Tempo de impressão: </span>
             <strong>{fmtPrintTime(result.meta.print_time_min)}</strong>
           </div>
           <div>
-            <span className="text-gray-500">Filament: </span>
+            <span className="text-gray-600">Filamento: </span>
             <strong>{fmtFilament(result.meta.filament_g)} · {fmtFilamentM(result.meta.filament_m)}</strong>
           </div>
           <button
             onClick={download}
-            className="w-full bg-emerald-600 text-white rounded px-3 py-2"
+            className="w-full bg-emerald-700 text-white rounded px-3 py-2 min-h-11"
           >
-            Download .3mf
+            Baixar .3mf
           </button>
         </div>
       )}
