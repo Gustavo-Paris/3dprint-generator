@@ -104,7 +104,7 @@ export default function SliceButton({
   if (!iterationId || !stl) return null
 
   return (
-    <div className="absolute top-4 right-4 flex flex-col items-end gap-2 z-10">
+    <div className="absolute top-[4.5rem] right-4 flex flex-col items-end gap-2 z-10">
       <button
         onClick={onClick}
         disabled={busy || slicerOk === false}

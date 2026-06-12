@@ -437,7 +437,8 @@ export default function ProjectWorkspace({
               id="body-color-picker"
               value={bodyColor}
               onChange={(e) => setBodyColor(e.target.value)}
-              className="w-6 h-6 rounded border border-gray-300 cursor-pointer"
+              aria-label="Cor da base (extrusora A)"
+              className="w-11 h-11 rounded border border-gray-300 cursor-pointer p-0"
             />
             <label htmlFor="body-color-picker" className="cursor-pointer font-medium">Cor da Base (A)</label>
           </div>
@@ -447,7 +448,8 @@ export default function ProjectWorkspace({
               id="logo-color-picker"
               value={logoColor}
               onChange={(e) => setLogoColor(e.target.value)}
-              className="w-6 h-6 rounded border border-gray-300 cursor-pointer"
+              aria-label="Cor do logo (extrusora B)"
+              className="w-11 h-11 rounded border border-gray-300 cursor-pointer p-0"
             />
             <label htmlFor="logo-color-picker" className="cursor-pointer font-medium">Cor do Logo (B)</label>
           </div>
