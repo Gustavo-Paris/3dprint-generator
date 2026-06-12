@@ -3,8 +3,8 @@
  *
  * Pure topology check over a triangle-soup `Float32Array` (9 floats / triangle).
  * It answers the question a slicer cares about: is this mesh a closed, manifold
- * surface? It does NOT repair anything (see src/lib/compose/repair-mesh.ts for
- * that) and it does NOT measure wall thickness (deferred to a later phase).
+ * surface? It does NOT repair anything and it does NOT measure wall thickness
+ * (deferred to a later phase).
  *
  * No THREE dependency on purpose — raw floats in, plain object out — so it runs
  * inside the geometry worker and in node unit tests alike.
