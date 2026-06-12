@@ -1,4 +1,5 @@
 import type { MeshyTask, MeshyResult, MeshyImageInput } from './types'
+import { env } from '@/env'
 
 const BASE = 'https://api.meshy.ai/openapi/v2'
 const POLL_INTERVAL_MS = 4000
@@ -6,7 +7,7 @@ const MAX_POLLS_PER_STAGE = 60 // 60 × 4s = 240s per stage (preview or refine)
 
 /** True when a Meshy API key is configured — gate the freeform branch on this. */
 export function isMeshyConfigured(): boolean {
-  return !!process.env.MESHY_API_KEY
+  return !!env.MESHY_API_KEY
 }
 
 /**

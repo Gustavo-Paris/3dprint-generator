@@ -1,6 +1,7 @@
 import { anthropic } from '@ai-sdk/anthropic'
 import { gateway } from 'ai'
 import type { LanguageModel } from 'ai'
+import { env } from '@/env'
 
 const MODEL_ID = 'claude-opus-4-7'
 const GATEWAY_MODEL_ID = `anthropic/${MODEL_ID}` as const
@@ -17,10 +18,10 @@ const CLASSIFIER_GATEWAY_MODEL_ID = `anthropic/${CLASSIFIER_MODEL_ID}` as const
  * is missing — it throws GatewayAuthenticationError. So we branch explicitly.
  */
 export function getModel(): LanguageModel {
-  if (process.env.AI_GATEWAY_API_KEY) {
+  if (env.AI_GATEWAY_API_KEY) {
     return gateway(GATEWAY_MODEL_ID)
   }
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (env.ANTHROPIC_API_KEY) {
     return anthropic(MODEL_ID)
   }
   throw new Error(
@@ -33,10 +34,10 @@ export function getModel(): LanguageModel {
  * Uses the same gateway/direct fallback logic as getModel().
  */
 export function getClassifierModel(): LanguageModel {
-  if (process.env.AI_GATEWAY_API_KEY) {
+  if (env.AI_GATEWAY_API_KEY) {
     return gateway(CLASSIFIER_GATEWAY_MODEL_ID)
   }
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (env.ANTHROPIC_API_KEY) {
     return anthropic(CLASSIFIER_MODEL_ID)
   }
   throw new Error(

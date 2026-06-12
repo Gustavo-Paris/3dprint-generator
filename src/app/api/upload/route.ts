@@ -1,4 +1,5 @@
 import { auth } from '@/auth'
+import { env } from '@/env'
 import { apiError } from '@/lib/http/api-error'
 import { sniffKind } from '@/lib/http/sniff-magic-bytes'
 import { put } from '@vercel/blob'
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
   }
 
   let url: string
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (env.BLOB_READ_WRITE_TOKEN) {
     const blob = await put(`${session.user.id}/uploads/${id}.${ext}`, bytes, {
       access: 'public',
       addRandomSuffix: false,

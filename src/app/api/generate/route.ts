@@ -12,6 +12,7 @@
  * No detector ladder, no per-composer routing. One design, one generator.
  */
 import { auth } from '@/auth'
+import { env } from '@/env'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { reapStuckIterations } from '@/lib/db/reap-stuck-iterations'
@@ -293,7 +294,7 @@ export async function POST(req: Request) {
         .where(eq(iterations.id, iteration.id))
       return apiError(503, 'freeform_unavailable', 'A geração freeform não está configurada.', { iteration_id: iteration.id })
     }
-    const apiKey = process.env.MESHY_API_KEY as string
+    const apiKey = env.MESHY_API_KEY as string
     const meshy = design.sourceImageUrl
       ? await generateMeshFromImage({ imageUrl: design.sourceImageUrl, apiKey })
       : await generateMesh({ prompt: design.prompt, apiKey })
@@ -378,7 +379,7 @@ async function persistMesh(
   const is3mf = bytes[0] === 0x50 && bytes[1] === 0x4b
   const ext = is3mf ? '3mf' : 'stl'
   const contentType = is3mf ? 'application/octet-stream' : 'model/stl'
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (env.BLOB_READ_WRITE_TOKEN) {
     const blob = await put(`${userId}/${projectId}/${iterationId}.${ext}`, Buffer.from(bytes), {
       access: 'public',
       addRandomSuffix: false,

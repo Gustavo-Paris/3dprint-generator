@@ -15,6 +15,7 @@
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
+import { env } from '@/env'
 import { flexify } from '@/lib/flexify'
 import { apiError } from '@/lib/http/api-error'
 import { createRequestLogger } from '@/lib/log'
@@ -185,7 +186,7 @@ async function persistMesh(
   projectId: string,
   iterationId: string,
 ): Promise<string> {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (env.BLOB_READ_WRITE_TOKEN) {
     const blob = await put(`${userId}/${projectId}/${iterationId}.3mf`, Buffer.from(bytes), {
       access: 'public',
       addRandomSuffix: false,

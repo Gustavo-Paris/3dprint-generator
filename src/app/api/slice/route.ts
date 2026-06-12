@@ -1,4 +1,5 @@
 import { auth } from '@/auth'
+import { env } from '@/env'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { sliceStl, SlicerError } from '@/lib/slicer/client'
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
   // client can save it without external storage (handy for local dev).
   const filename = `${session.user.id}/${row.project.id}/${iterationId}.3mf`
   let slicedUrl: string | null = null
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (env.BLOB_READ_WRITE_TOKEN) {
     const blob = await put(filename, Buffer.from(result.bytes), {
       access: 'public',
       addRandomSuffix: false,
