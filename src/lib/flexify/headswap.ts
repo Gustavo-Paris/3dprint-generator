@@ -4,6 +4,11 @@
  * head on top, and a separate Meshy mesh whose head region they want
  * planted on the base.
  *
+ * EXPERIMENTAL / CLI-ONLY: reachable only via `src/scripts/headswap-cli.ts`
+ * (`pnpm tsx src/scripts/headswap-cli.ts <octopus.3mf> <meshy.3mf> <out.3mf>`).
+ * No API route or UI exposes it. Not part of the shipped product surface; the
+ * web flexify entry point is `src/app/api/flexify/route.ts`.
+ *
  * Pipeline:
  *   1. Load both meshes
  *   2. Slice the Meshy mesh by Z, keeping only triangles above a cutoff
