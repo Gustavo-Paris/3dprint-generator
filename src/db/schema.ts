@@ -1,5 +1,5 @@
-import { pgTable, text, timestamp, uuid, jsonb, primaryKey, integer } from 'drizzle-orm/pg-core'
-import { relations } from 'drizzle-orm'
+import { pgTable, text, timestamp, uuid, jsonb, primaryKey, integer, index, check, type AnyPgColumn } from 'drizzle-orm/pg-core'
+import { relations, sql } from 'drizzle-orm'
 import { iterationStrategies } from './strategy'
 
 export const users = pgTable('users', {
@@ -49,15 +49,25 @@ export const projects = pgTable('projects', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
-  currentIterationId: uuid('current_iteration_id'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-})
+  // FK to iterations.id, ON DELETE SET NULL. Declared as a lazy column-level
+  // reference with an explicit AnyPgColumn return type: projects and iterations
+  // reference each other, and that mutual reference otherwise makes TypeScript
+  // infer both table types as `any` (circular). The annotation breaks the type
+  // cycle; the thunk keeps it lazy so declaration order is irrelevant. Drizzle
+  // names the constraint `projects_current_iteration_id_iterations_id_fk`.
+  currentIterationId: uuid('current_iteration_id').references(
+    (): AnyPgColumn => iterations.id,
+    { onDelete: 'set null' },
+  ),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  userIdIdx: index('projects_user_id_idx').on(t.userId),
+}))
 
 export const iterations = pgTable('iterations', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-  parentIterationId: uuid('parent_iteration_id'),
   userMessage: text('user_message').notNull(),
   imageBlobUrl: text('image_blob_url'),
   jscadCode: text('jscad_code'),
@@ -70,11 +80,16 @@ export const iterations = pgTable('iterations', {
   error: text('error'),
   slicedBlobUrl: text('sliced_blob_url'),
   slicedMeta: jsonb('sliced_meta'),
-  slicedAt: timestamp('sliced_at'),
+  slicedAt: timestamp('sliced_at', { withTimezone: true }),
   baseMode: text('base_mode', { enum: ['mesh_only', 'with_base'] }),
   imageDescription: text('image_description'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-})
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  projectCreatedIdx: index('iterations_project_id_created_at_idx').on(t.projectId, t.createdAt),
+  statusCheck: check('iterations_status_check', sql`${t.status} IN ('generating','ready','failed','sliced')`),
+  baseModeCheck: check('iterations_base_mode_check', sql`${t.baseMode} IS NULL OR ${t.baseMode} IN ('mesh_only','with_base')`),
+  strategyCheck: check('iterations_strategy_check', sql`${t.strategy} IN (${sql.join(iterationStrategies.map((s) => sql`${s}`), sql`, `)})`),
+}))
 
 export const projectsRelations = relations(projects, ({ many, one }) => ({
   iterations: many(iterations),
