@@ -19,39 +19,43 @@ export default async function Home() {
   return (
     <main className="max-w-3xl mx-auto p-8 space-y-6">
       <header className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">Your projects</h1>
+        <h1 className="text-2xl font-semibold">Seus projetos</h1>
         <form
           action={async () => {
             'use server'
             await signOut({ redirectTo: '/sign-in' })
           }}
         >
-          <button className="text-sm text-gray-500 hover:underline">
-            {session.user.email} — sign out
+          <button className="text-sm text-gray-600 hover:underline min-h-11">
+            {session.user.email} — sair
           </button>
         </form>
       </header>
 
       <form action={createProject} className="flex gap-2">
+        <label htmlFor="new-project-title" className="sr-only">
+          Título do novo projeto
+        </label>
         <input
+          id="new-project-title"
           name="title"
-          placeholder="New project title"
-          className="flex-1 border rounded px-3 py-2"
+          placeholder="Título do novo projeto"
+          className="flex-1 border rounded px-3 py-2 min-h-11"
         />
-        <button type="submit" className="bg-black text-white rounded px-4 py-2">
-          New
+        <button type="submit" className="bg-black text-white rounded px-4 py-2 min-h-11">
+          Criar
         </button>
       </form>
 
       <ul className="space-y-2">
         {myProjects.length === 0 && (
-          <li className="text-gray-500 text-sm">No projects yet.</li>
+          <li className="text-gray-600 text-sm">Nenhum projeto ainda.</li>
         )}
         {myProjects.map((p) => (
           <li key={p.id}>
             <Link href={`/projects/${p.id}`} className="block border rounded p-3 hover:bg-gray-50">
               <div className="font-medium">{p.title}</div>
-              <div className="text-xs text-gray-500">{p.updatedAt.toLocaleString()}</div>
+              <div className="text-xs text-gray-600">{p.updatedAt.toLocaleString('pt-BR')}</div>
             </Link>
           </li>
         ))}
