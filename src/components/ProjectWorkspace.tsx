@@ -1,6 +1,8 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
+import { BrandMark } from '@/components/Brand'
 import type { InferSelectModel } from 'drizzle-orm'
 import type { projects as projectsTable, iterations as iterationsTable } from '@/db/schema'
 import type { HistoryRow } from '@/db/history-columns'
@@ -23,7 +25,7 @@ const MeshViewer = dynamic(() => import('./MeshViewer'), {
   loading: () => (
     <div
       data-testid="viewer-skeleton"
-      className="absolute inset-0 flex items-center justify-center bg-gray-50 text-gray-400 text-sm"
+      className="studio-stage absolute inset-0 flex items-center justify-center text-sm text-slate-400"
     >
       Carregando visualizador 3D…
     </div>
@@ -363,10 +365,18 @@ export default function ProjectWorkspace({
   }
 
   return (
-    <main className="h-screen flex flex-col lg:grid lg:grid-cols-[420px_1fr]">
-      <aside className="border-r flex flex-col min-h-0 max-h-[45vh] lg:max-h-none">
-        <header className="p-4 border-b">
-          <h1 className="font-semibold">{project.title}</h1>
+    <main className="h-screen flex flex-col bg-slate-950 text-slate-100 lg:grid lg:grid-cols-[400px_1fr]">
+      <aside className="flex flex-col min-h-0 max-h-[45vh] border-b border-slate-800 bg-slate-900 lg:max-h-none lg:border-b-0 lg:border-r">
+        <header className="flex items-center gap-2.5 border-b border-slate-800 p-4">
+          <Link
+            href="/"
+            aria-label="Voltar para meus projetos"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white"
+          >
+            ←
+          </Link>
+          <BrandMark className="h-5 w-5 shrink-0" />
+          <h1 className="flex-1 truncate font-semibold text-white">{project.title}</h1>
         </header>
         <Chat
           projectId={project.id}
@@ -378,7 +388,7 @@ export default function ProjectWorkspace({
           pendingPreviews={pendingPreviews}
         />
       </aside>
-      <section className="relative bg-gray-50 flex-1 min-h-0" data-testid="viewer-slot">
+      <section className="relative studio-stage flex-1 min-h-0" data-testid="viewer-slot">
         <MeshViewer
           ref={meshViewerRef}
           positions={positions}
@@ -402,10 +412,10 @@ export default function ProjectWorkspace({
           {positions && importedBaseAvailable && (
             <button
               onClick={() => { setPickMode((v) => !v); setPick(null) }}
-              className={`px-3 py-2 rounded text-sm font-medium border shadow-sm min-h-11 ${
+              className={`px-3 py-2 rounded-lg text-sm font-medium border shadow-soft min-h-11 transition ${
                 pickMode
-                  ? 'bg-orange-600 text-white border-orange-700'
-                  : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+                  ? 'bg-orange-500 text-white border-orange-600'
+                  : 'bg-slate-900/80 text-slate-100 border-slate-700 backdrop-blur hover:bg-slate-800'
               }`}
               title="Clique num ponto do modelo para posicionar o logo ali"
             >
@@ -417,8 +427,8 @@ export default function ProjectWorkspace({
         {/* Keyboard alternative to click-to-place: X/Y mm offsets from the mesh
             top-center, feeding the SAME placement handler as a canvas click. */}
         {positions && importedBaseAvailable && (
-          <fieldset className="absolute top-[4.5rem] left-4 z-10 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-2 text-xs shadow-sm text-gray-700">
-            <legend className="px-1 text-gray-600">Posição do logo (teclado)</legend>
+          <fieldset className="absolute top-[4.5rem] left-4 z-10 bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-2 text-xs shadow-card text-slate-200">
+            <legend className="px-1 text-slate-400">Posição do logo (teclado)</legend>
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-1">
                 X (mm)
@@ -427,7 +437,7 @@ export default function ProjectWorkspace({
                   value={logoX}
                   onChange={(e) => setLogoX(Number(e.target.value))}
                   aria-label="Deslocamento X do logo em milímetros"
-                  className="border rounded px-2 min-h-11 w-20"
+                  className="border border-slate-600 bg-slate-800 text-slate-100 rounded px-2 min-h-11 w-20"
                 />
               </label>
               <label className="flex items-center gap-1">
@@ -437,7 +447,7 @@ export default function ProjectWorkspace({
                   value={logoY}
                   onChange={(e) => setLogoY(Number(e.target.value))}
                   aria-label="Deslocamento Y do logo em milímetros"
-                  className="border rounded px-2 min-h-11 w-20"
+                  className="border border-slate-600 bg-slate-800 text-slate-100 rounded px-2 min-h-11 w-20"
                 />
               </label>
               <button
@@ -453,23 +463,23 @@ export default function ProjectWorkspace({
 
         {/* Click-to-place panel */}
         {pickMode && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 flex items-center gap-3 text-sm">
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-xl shadow-lift p-3 flex items-center gap-3 text-sm text-slate-200">
             {!pick ? (
-              <span className="text-gray-600">👆 Clique no ponto do modelo onde quer o logo (arraste para girar)</span>
+              <span className="text-slate-300">👆 Clique no ponto do modelo onde quer o logo (arraste para girar)</span>
             ) : (
               <>
-                <div className="flex rounded border border-gray-300 overflow-hidden">
+                <div className="flex rounded-lg border border-slate-600 overflow-hidden">
                   {(['embossed', 'engraved'] as const).map((t) => (
                     <button
                       key={t}
                       onClick={() => setPlaceTreatment(t)}
-                      className={`px-2.5 py-1 ${placeTreatment === t ? 'bg-gray-900 text-white' : 'bg-white text-gray-700'}`}
+                      className={`px-2.5 py-1 transition ${placeTreatment === t ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
                     >
                       {t === 'embossed' ? 'Alto-relevo' : 'Gravado'}
                     </button>
                   ))}
                 </div>
-                <label className="flex items-center gap-1 text-gray-700">
+                <label className="flex items-center gap-1 text-slate-300">
                   Tamanho
                   <input
                     type="number"
@@ -477,7 +487,7 @@ export default function ProjectWorkspace({
                     max={60}
                     value={placeSizeMm}
                     onChange={(e) => setPlaceSizeMm(Math.max(5, Math.min(60, Number(e.target.value) || 20)))}
-                    className="w-14 border border-gray-300 rounded px-1 py-0.5"
+                    className="w-14 border border-slate-600 bg-slate-800 text-slate-100 rounded px-1 py-0.5"
                   />
                   mm
                 </label>
@@ -488,7 +498,7 @@ export default function ProjectWorkspace({
                 >
                   {placing ? 'Aplicando…' : 'Aplicar logo'}
                 </button>
-                <button onClick={() => setPick(null)} className="text-gray-500 hover:text-gray-800">
+                <button onClick={() => setPick(null)} className="text-slate-400 hover:text-white">
                   limpar
                 </button>
               </>
@@ -497,8 +507,8 @@ export default function ProjectWorkspace({
         )}
 
         {/* Color configuration panel */}
-        <div className="absolute top-4 right-4 z-10 bg-white/90 backdrop-blur-sm border border-gray-200 rounded-lg p-3 shadow-sm flex flex-col gap-2 text-xs text-gray-700">
-          <div className="font-semibold text-gray-900 border-b pb-1">Cores de Impressão</div>
+        <div className="absolute top-4 right-4 z-10 bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-3 shadow-card flex flex-col gap-2 text-xs text-slate-300">
+          <div className="font-semibold text-white border-b border-slate-700 pb-1">Cores de Impressão</div>
           <div className="flex items-center gap-2">
             <input
               type="color"
@@ -506,7 +516,7 @@ export default function ProjectWorkspace({
               value={bodyColor}
               onChange={(e) => setBodyColor(e.target.value)}
               aria-label="Cor da base (extrusora A)"
-              className="w-11 h-11 rounded border border-gray-300 cursor-pointer p-0"
+              className="w-11 h-11 rounded border border-slate-600 cursor-pointer p-0"
             />
             <label htmlFor="body-color-picker" className="cursor-pointer font-medium">Cor da Base (A)</label>
           </div>
@@ -517,7 +527,7 @@ export default function ProjectWorkspace({
               value={logoColor}
               onChange={(e) => setLogoColor(e.target.value)}
               aria-label="Cor do logo (extrusora B)"
-              className="w-11 h-11 rounded border border-gray-300 cursor-pointer p-0"
+              className="w-11 h-11 rounded border border-slate-600 cursor-pointer p-0"
             />
             <label htmlFor="logo-color-picker" className="cursor-pointer font-medium">Cor do Logo (B)</label>
           </div>
@@ -529,7 +539,7 @@ export default function ProjectWorkspace({
           <div
             role="alert"
             aria-live="assertive"
-            className="absolute bottom-4 left-4 right-4 bg-red-50 text-red-900 border border-red-200 rounded p-3 text-xs"
+            className="absolute bottom-4 left-4 right-4 bg-red-950/90 backdrop-blur text-red-100 border border-red-800 rounded-lg p-3 text-xs shadow-lift"
           >
             <strong>Erro:</strong> {error}
           </div>

@@ -2,9 +2,11 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f172a; /* slate-900 — softer than near-black, better long-read */
 }
 
+/* Tokens that reference per-element / runtime vars stay inline so utilities
+   resolve to the live value (fonts come from next/font on <html>). */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -12,8 +14,72 @@
   --font-mono: var(--font-geist-mono);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   The app had no system — only --background/--foreground. This promotes the
+   blue already used on "Cor da Base" to a real brand scale, and adds layered
+   shadows so surfaces read with depth instead of flat outlines. */
+@theme {
+  --color-brand-50:  #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
+  --color-brand-950: #172554;
+
+  /* Soft, layered elevation (light "shell" surfaces). */
+  --shadow-soft: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.07);
+  --shadow-card: 0 1px 3px rgb(15 23 42 / 0.06), 0 6px 16px -4px rgb(15 23 42 / 0.10);
+  --shadow-lift: 0 8px 24px -6px rgb(15 23 42 / 0.16), 0 16px 40px -12px rgb(15 23 42 / 0.22);
+}
+
+@layer base {
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* One consistent, visible focus ring app-wide — a11y + polish. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: var(--color-brand-200);
+    color: var(--color-brand-950);
+  }
+}
+
+/* Slim, unobtrusive scrollbar for the dark studio panels. */
+.studio-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(51 65 85) transparent;
+}
+.studio-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.studio-scroll::-webkit-scrollbar-thumb {
+  background: rgb(51 65 85);
+  border-radius: 9999px;
+}
+.studio-scroll::-webkit-scrollbar-thumb:hover { background: rgb(71 85 105); }
+
+/* Soft ambient stage behind the 3D viewer so the mesh reads as the hero. */
+.studio-stage {
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgb(30 41 59) 0%, rgb(15 23 42) 45%, rgb(2 6 23) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

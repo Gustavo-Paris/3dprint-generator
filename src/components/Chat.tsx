@@ -1,6 +1,16 @@
 'use client'
 import { useRef, useState } from 'react'
 import { resultLabel } from '@/lib/chat/result-label'
+import { BrandMark } from '@/components/Brand'
+
+/** Starter prompts shown in the empty chat so the workspace isn't a blank panel
+ *  (design critique P0-2). Clicking one fills the composer (PT-BR, on purpose). */
+const EXAMPLE_PROMPTS = [
+  'Porta-lata cilíndrico com meu logo',
+  'Plaquinha de mesa 80×40mm com furo',
+  'Disco ⌀50mm com logo gravado',
+  'Chaveiro retangular 40×20mm',
+] as const
 
 /** One-line human summary of a Design JSON for the chat header. */
 function designSummary(design: unknown): string {
@@ -193,7 +203,30 @@ export default function Chat({
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 text-sm" data-testid="chat-history">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 text-sm studio-scroll" data-testid="chat-history">
+        {messages.length === 0 && !busy && (
+          <div className="flex min-h-full flex-col items-center justify-center px-4 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-800 ring-1 ring-slate-700">
+              <BrandMark className="h-6 w-6" />
+            </div>
+            <p className="mt-4 font-medium text-slate-100">Vamos criar sua peça</p>
+            <p className="mt-1 max-w-xs text-sm text-slate-400">
+              Descreva o que quer imprimir ou anexe uma imagem. Comece com um exemplo:
+            </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              {EXAMPLE_PROMPTS.map((ex) => (
+                <button
+                  key={ex}
+                  type="button"
+                  onClick={() => setDraft(ex)}
+                  className="rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs text-slate-300 transition hover:border-brand-500 hover:bg-slate-800 hover:text-white"
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {messages.map((m, i) => (
           <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
             {m.imageUrl && (
@@ -202,60 +235,62 @@ export default function Chat({
                 <img
                   src={m.imageUrl}
                   alt="attached"
-                  className="max-w-[150px] max-h-[150px] rounded mb-1 inline-block"
+                  className="max-w-[150px] max-h-[150px] rounded-lg mb-1 inline-block ring-1 ring-slate-700"
                 />
               </div>
             )}
             <div
-              className={`inline-block rounded px-3 py-2 max-w-[90%] ${
-                m.role === 'user' ? 'bg-black text-white' : 'bg-gray-100 font-mono text-xs whitespace-pre-wrap'
+              className={`inline-block rounded-xl px-3 py-2 max-w-[90%] ${
+                m.role === 'user'
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-slate-800 text-slate-100 font-mono text-xs whitespace-pre-wrap'
               }`}
             >
               {m.text}
             </div>
             {m.role === 'assistant' && m.strategy && (
-              <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-gray-200 text-gray-700 uppercase align-top">
+              <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-slate-700 text-slate-300 uppercase align-top">
                 {badgeFor(m.design) === 'meshy' ? 'imagem' : 'paramétrico'}
               </span>
             )}
             {m.role === 'assistant' && m.designAdjustments && m.designAdjustments.length > 0 && (
-              <div className="mt-2 max-w-[90%] border-l-2 border-orange-400 bg-orange-50 px-3 py-2 text-left text-[11px]">
-                <div className="uppercase tracking-wide text-orange-700 font-semibold mb-1">
+              <div className="mt-2 max-w-[90%] border-l-2 border-orange-500 bg-orange-950/40 px-3 py-2 text-left text-[11px]">
+                <div className="uppercase tracking-wide text-orange-300 font-semibold mb-1">
                   Ajustes aplicados (LLM saiu da faixa printável)
                 </div>
-                <ul className="space-y-0.5 text-gray-800">
+                <ul className="space-y-0.5 text-slate-200">
                   {m.designAdjustments.map((a, k) => (
                     <li key={k} className="font-mono">
-                      <span className="text-gray-500">{a.field}</span>: {a.from} → {a.to}
+                      <span className="text-slate-400">{a.field}</span>: {a.from} → {a.to}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
             {m.role === 'assistant' && m.warnings && m.warnings.length > 0 && (
-              <div className="mt-2 max-w-[90%] border-l-2 border-red-400 bg-red-50 px-3 py-2 text-left text-[11px]">
-                <div className="uppercase tracking-wide text-red-700 font-semibold mb-1">
+              <div className="mt-2 max-w-[90%] border-l-2 border-red-500 bg-red-950/40 px-3 py-2 text-left text-[11px]">
+                <div className="uppercase tracking-wide text-red-300 font-semibold mb-1">
                   ⚠ Edições não aplicadas
                 </div>
-                <ul className="space-y-1 text-gray-800">
+                <ul className="space-y-1 text-slate-200">
                   {m.warnings.map((w, k) => (
                     <li key={k}>
-                      <span className="font-mono text-gray-500">{w.op}</span>: {w.reason}
+                      <span className="font-mono text-slate-400">{w.op}</span>: {w.reason}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
             {m.role === 'assistant' && m.design != null && editingDesign?.sourceMsgIndex !== i && (
-              <details className="mt-2 max-w-[90%] border-l-2 border-blue-400 bg-blue-50 px-3 py-2 text-left">
-                <summary className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold cursor-pointer select-none min-h-11 flex items-center">
+              <details className="mt-2 max-w-[90%] border-l-2 border-brand-500 bg-brand-950/40 px-3 py-2 text-left">
+                <summary className="text-[10px] uppercase tracking-wide text-brand-300 font-semibold cursor-pointer select-none min-h-11 flex items-center">
                   Como interpretamos seu pedido — {designSummary(m.design)}
                 </summary>
-                <pre className="mt-1.5 text-[11px] text-gray-800 whitespace-pre-wrap overflow-x-auto">
+                <pre className="mt-1.5 text-[11px] text-slate-300 whitespace-pre-wrap overflow-x-auto">
                   {JSON.stringify(m.design, null, 2)}
                 </pre>
                 <div className="mt-1.5 flex items-center justify-between gap-2">
-                  <div className="text-[10px] text-gray-500">
+                  <div className="text-[10px] text-slate-400">
                     Pra iterar: peça mudanças concretas (&ldquo;logo maior&rdquo;, &ldquo;vazada&rdquo;).
                   </div>
                   <button
@@ -264,7 +299,7 @@ export default function Chat({
                       jsonText: JSON.stringify(m.design, null, 2),
                       error: null,
                     })}
-                    className="text-[10px] uppercase tracking-wide text-blue-700 border border-blue-300 rounded px-2 py-0.5 min-h-11 hover:bg-blue-100 whitespace-nowrap"
+                    className="text-[10px] uppercase tracking-wide text-brand-300 border border-brand-700 rounded px-2 py-0.5 min-h-11 hover:bg-brand-900/50 whitespace-nowrap"
                   >
                     Ajustar parâmetros
                   </button>
@@ -272,8 +307,8 @@ export default function Chat({
               </details>
             )}
             {m.role === 'assistant' && editingDesign?.sourceMsgIndex === i && (
-              <div className="mt-2 max-w-[90%] border-l-2 border-blue-600 bg-blue-50 px-3 py-2 text-left">
-                <div className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold mb-1.5">
+              <div className="mt-2 max-w-[90%] border-l-2 border-brand-500 bg-brand-950/40 px-3 py-2 text-left">
+                <div className="text-[10px] uppercase tracking-wide text-brand-300 font-semibold mb-1.5">
                   Ajustar parâmetros — aplica direto, sem reinterpretar
                 </div>
                 <textarea
@@ -283,11 +318,11 @@ export default function Chat({
                     jsonText: e.target.value,
                     error: null,
                   })}
-                  className="w-full font-mono text-[11px] border border-blue-300 rounded p-2 bg-white text-gray-800"
+                  className="w-full font-mono text-[11px] border border-slate-600 rounded p-2 bg-slate-900 text-slate-100"
                   rows={12}
                 />
                 {editingDesign.error && (
-                  <div className="mt-1 text-[11px] text-red-700">{editingDesign.error}</div>
+                  <div className="mt-1 text-[11px] text-red-300">{editingDesign.error}</div>
                 )}
                 <div className="mt-1.5 flex gap-2">
                   <button
@@ -306,13 +341,13 @@ export default function Chat({
                       setEditingDesign(null)
                       send({ designOverride: parsed, messageOverride: 'edited design directly' })
                     }}
-                    className="text-[11px] bg-blue-600 text-white rounded px-3 py-1 hover:bg-blue-700 disabled:opacity-50"
+                    className="text-[11px] bg-brand-600 text-white rounded px-3 py-1 hover:bg-brand-700 disabled:opacity-50"
                   >
                     Aplicar
                   </button>
                   <button
                     onClick={() => setEditingDesign(null)}
-                    className="text-[11px] border border-gray-300 rounded px-3 py-1 hover:bg-gray-100"
+                    className="text-[11px] border border-slate-600 text-slate-300 rounded px-3 py-1 hover:bg-slate-800"
                   >
                     Cancelar
                   </button>
@@ -321,13 +356,18 @@ export default function Chat({
             )}
           </div>
         ))}
-        {busy && <div className="text-gray-500 text-xs">Gerando…</div>}
+        {busy && (
+          <div className="flex items-center gap-2 text-slate-400 text-xs">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-brand-400" />
+            Gerando…
+          </div>
+        )}
       </div>
 
       {pendingMeshUrl && (
-        <div className="px-4 pb-2 pt-2 flex items-center gap-2 border-t bg-violet-50">
+        <div className="px-4 pb-2 pt-2 flex items-center gap-2 border-t border-slate-800 bg-violet-950/40">
           <span className="text-lg">📦</span>
-          <span className="text-xs text-violet-700 flex-1 truncate">
+          <span className="text-xs text-violet-300 flex-1 truncate">
             {pendingPreviews
               ? '.3mf carregado — previews prontos, pode enviar uma mensagem'
               : '.3mf carregado — aguardando previews do viewer…'}
@@ -337,24 +377,24 @@ export default function Chat({
 
       {attachedImage && (
         <div
-          className={`px-4 pb-2 pt-2 flex items-center gap-2 border-t ${
-            attachedImage.carried ? 'bg-slate-50' : 'bg-emerald-50'
+          className={`px-4 pb-2 pt-2 flex items-center gap-2 border-t border-slate-800 ${
+            attachedImage.carried ? 'bg-slate-800/60' : 'bg-emerald-950/40'
           }`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element -- dynamic user-uploaded URL (Vercel Blob or local /uploads); host not in images.remotePatterns, next/image would throw at runtime */}
           <img
             src={attachedImage.url}
             alt="attached preview"
-            className="w-12 h-12 object-cover rounded border"
+            className="w-12 h-12 object-cover rounded-lg ring-1 ring-slate-700"
           />
-          <span className="text-xs text-gray-700 flex-1 truncate">
+          <span className="text-xs text-slate-300 flex-1 truncate">
             {attachedImage.carried
               ? '↻ imagem de referência — seu texto modifica via text-to-3D'
               : `🆕 upload novo — vai regenerar do zero via image-to-3D (texto será ignorado)`}
           </span>
           <button
             onClick={() => setAttachedImage(null)}
-            className="text-gray-500 hover:text-red-500 text-sm px-2 min-h-11 min-w-11"
+            className="text-slate-400 hover:text-red-400 text-sm px-2 min-h-11 min-w-11"
             aria-label="Remover imagem anexada"
           >
             ✕
@@ -365,12 +405,12 @@ export default function Chat({
       {uploadError && (
         <div
           role="alert"
-          className="px-4 pb-2 pt-2 flex items-center gap-2 border-t bg-red-50 text-red-900 text-xs"
+          className="px-4 pb-2 pt-2 flex items-center gap-2 border-t border-slate-800 bg-red-950/50 text-red-200 text-xs"
         >
           <span className="flex-1">{uploadError}</span>
           <button
             onClick={() => setUploadError(null)}
-            className="px-2 min-h-11 min-w-11 text-red-700 hover:text-red-900"
+            className="px-2 min-h-11 min-w-11 text-red-300 hover:text-red-100"
             aria-label="Fechar aviso"
           >
             ✕
@@ -379,7 +419,7 @@ export default function Chat({
       )}
 
       <form
-        className="p-4 border-t flex gap-2"
+        className="p-4 border-t border-slate-800 flex gap-2 bg-slate-900"
         onSubmit={(e) => {
           e.preventDefault()
           send()
@@ -397,7 +437,7 @@ export default function Chat({
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={busy || uploading}
-          className="px-3 py-2 border rounded text-gray-600 hover:bg-gray-50 disabled:opacity-50 min-h-11"
+          className="px-3 py-2 border border-slate-700 rounded-lg text-slate-300 hover:bg-slate-800 disabled:opacity-50 min-h-11 transition"
           aria-label="Anexar imagem"
           title="Anexar imagem"
         >
@@ -408,13 +448,13 @@ export default function Chat({
           onChange={(e) => setDraft(e.target.value)}
           placeholder='Descreva o que quer criar — ex.: "porta-lata cilíndrico com logo"'
           aria-label="Descreva o que quer criar"
-          className="flex-1 border rounded px-3 py-2 min-h-11"
+          className="flex-1 border border-slate-700 bg-slate-800 text-slate-100 placeholder:text-slate-500 rounded-lg px-3 py-2 min-h-11 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
           disabled={busy}
           data-testid="chat-input"
         />
         <button
           type="submit"
-          className="bg-black text-white rounded px-4 py-2 min-h-11 disabled:opacity-50"
+          className="bg-brand-600 text-white rounded-lg px-4 py-2 min-h-11 font-medium transition hover:bg-brand-700 active:bg-brand-800 disabled:opacity-50"
           disabled={busy || uploading || (!draft.trim() && !attachedImage)}
         >
           Enviar
