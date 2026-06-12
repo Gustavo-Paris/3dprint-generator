@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { projects, iterations } from '@/db/schema'
@@ -6,6 +7,23 @@ import { notFound, redirect } from 'next/navigation'
 import { isUuid } from '@/lib/validation/uuid'
 import { historyColumns } from '@/db/history-columns'
 import ProjectWorkspace from '@/components/ProjectWorkspace'
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}): Promise<Metadata> {
+  const { id } = await params
+  if (!isUuid(id)) return { title: 'Projeto' }
+  const session = await auth()
+  if (!session?.user?.id) return { title: 'Projeto' }
+  const [project] = await db
+    .select({ title: projects.title })
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, session.user.id)))
+    .limit(1)
+  return { title: project?.title ?? 'Projeto' }
+}
 
 export default async function ProjectPage({
   params,
