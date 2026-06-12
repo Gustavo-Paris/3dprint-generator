@@ -1,16 +1,34 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import type { InferSelectModel } from 'drizzle-orm'
 import type { projects as projectsTable, iterations as iterationsTable } from '@/db/schema'
 import type { HistoryRow } from '@/db/history-columns'
 import Chat, { type ChatResult, type PreviewBundle } from './Chat'
-import MeshViewer, { type MeshBody, type MeshViewerHandle } from './MeshViewer'
+import type { MeshBody, MeshViewerHandle } from './MeshViewer'
 import SliceButton from './SliceButton'
 import DownloadStlButton from './DownloadStlButton'
 import FlexifyButton from './FlexifyButton'
 import MeshValidityBanner from './MeshValidityBanner'
 import { runInWorker } from '@/lib/jscad/worker-client'
 import type { MeshValidityReport } from '@/lib/mesh/validity'
+
+// Defer the three.js + R3F + drei graph (~928KB) off the workspace's eager
+// chunk. ssr:false is valid here — ProjectWorkspace is a Client Component
+// (next docs: lazy-loading, ssr:false only works in Client Components); the
+// viewer relies on WebGL/canvas APIs that don't exist during SSR. The ref
+// (meshViewerRef → capturePreviews) forwards through dynamic() under React 19.
+const MeshViewer = dynamic(() => import('./MeshViewer'), {
+  ssr: false,
+  loading: () => (
+    <div
+      data-testid="viewer-skeleton"
+      className="absolute inset-0 flex items-center justify-center bg-gray-50 text-gray-400 text-sm"
+    >
+      Carregando visualizador 3D…
+    </div>
+  ),
+})
 
 type Project = InferSelectModel<typeof projectsTable>
 type Iteration = InferSelectModel<typeof iterationsTable>
