@@ -69,15 +69,28 @@ function FitCameraToObject({
   return null
 }
 
+/** Pure: map a mesh's max absolute coordinate to a grid size.
+ *  Meshy meshes arrive sub-unit (~1); JSCAD meshes are mm (10-300). */
+export function gridSizeFromExtent(maxAbs: number): number {
+  if (maxAbs < 1) return 4 // Meshy-scale meshes (~1 unit)
+  return Math.max(50, Math.min(1000, Math.ceil((maxAbs * 2.5) / 50) * 50))
+}
+
 function DynamicGrid({ positions }: { positions: Float32Array | null }) {
   const size = useMemo(() => {
     if (!positions) return 200
-    let max = 0
-    for (let i = 0; i < positions.length; i += 3) {
-      max = Math.max(max, Math.abs(positions[i]), Math.abs(positions[i + 1]), Math.abs(positions[i + 2]))
-    }
-    if (max < 1) return 4 // Meshy-scale meshes (~1 unit)
-    return Math.max(50, Math.min(1000, Math.ceil((max * 2.5) / 50) * 50))
+    // Reuse three's native min/max pass instead of a JS per-vertex loop.
+    const geom = new THREE.BufferGeometry()
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geom.computeBoundingBox()
+    const box = geom.boundingBox!
+    const maxAbs = Math.max(
+      Math.abs(box.min.x), Math.abs(box.max.x),
+      Math.abs(box.min.y), Math.abs(box.max.y),
+      Math.abs(box.min.z), Math.abs(box.max.z),
+    )
+    geom.dispose()
+    return gridSizeFromExtent(maxAbs)
   }, [positions])
   return <gridHelper args={[size, Math.max(10, Math.round(size / 10)), '#888', '#ddd']} />
 }
