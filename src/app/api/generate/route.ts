@@ -18,6 +18,7 @@ import { iterations, projects } from '@/db/schema'
 import { designKindToStrategy } from '@/db/strategy'
 import { reapStuckIterations } from '@/lib/db/reap-stuck-iterations'
 import { stripCacheKeys } from '@/lib/design/strip-cache-keys'
+import { readCachedDesign } from '@/lib/storage/validation-report'
 import { describeImage } from '@/lib/prompt/describe-image'
 import { parseDesign } from '@/lib/design/parse'
 import { generateFromDesign, readImageAspectRatio } from '@/lib/design/generate'
@@ -161,12 +162,12 @@ export async function POST(req: Request) {
 
   if (!effectiveMeshUrl) {
     const lastWithMesh = [...history].reverse().find((h) => {
-      const vr = h.validationReport as { kind?: string; baseMeshUrl?: string } | null
-      return vr?.kind === 'imported' && vr.baseMeshUrl
+      const vr = readCachedDesign(h.validationReport)
+      return vr?.kind === 'imported' && !!vr.baseMeshUrl
     })
     if (lastWithMesh) {
-      const vr = lastWithMesh.validationReport as { baseMeshUrl?: string; _faces?: unknown; _previews?: unknown } | null
-      effectiveMeshUrl = vr?.baseMeshUrl ?? null
+      const vr = readCachedDesign(lastWithMesh.validationReport)
+      effectiveMeshUrl = vr?.kind === 'imported' ? vr.baseMeshUrl : null
       cachedFaces = (vr?._faces ?? null) as SemanticFace[] | null
       cachedPreviews = (vr?._previews ?? null) as PreviewBundle | null
     }
