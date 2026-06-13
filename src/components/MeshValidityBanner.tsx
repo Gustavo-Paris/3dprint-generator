@@ -21,14 +21,14 @@ export default function MeshValidityBanner({
 
   const tone =
     state.tone === 'warn'
-      ? 'bg-amber-50 text-amber-900 border-amber-300'
-      : 'bg-sky-50 text-sky-900 border-sky-200'
+      ? 'bg-amber-950/80 text-amber-100 border-amber-800'
+      : 'bg-slate-900/80 text-slate-200 border-slate-700'
   const icon = state.tone === 'warn' ? '⚠' : 'ℹ'
 
   return (
     <div
       role="status"
-      className={`absolute bottom-4 left-4 right-4 z-10 border rounded p-3 text-xs ${tone}`}
+      className={`absolute bottom-4 left-4 right-4 z-10 border rounded-lg p-3 text-xs backdrop-blur shadow-card ${tone}`}
     >
       <strong>
         {icon} {state.title}

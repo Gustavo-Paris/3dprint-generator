@@ -112,38 +112,38 @@ export default function SliceButton({
         onClick={onClick}
         disabled={busy || slicerOk === false}
         title={slicerOk === false ? 'Slicer offline — fatiamento indisponível' : undefined}
-        className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-50 shadow"
+        className="bg-brand-600 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50 shadow-soft hover:bg-brand-700 transition"
       >
         {busy ? 'Fatiando…' : 'Fatiar para impressão'}
       </button>
       {busy && (
-        <div className="bg-white border rounded px-3 py-2 text-xs text-gray-600 shadow max-w-xs">
+        <div className="bg-slate-900/80 backdrop-blur border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 shadow-card max-w-xs">
           Malhas pesadas (logo aplicado) podem levar 1-2 min. Aguarde…
         </div>
       )}
       {slicerOk === false && (
-        <div className="bg-amber-50 border border-amber-300 text-amber-900 rounded px-3 py-2 text-xs max-w-xs">
+        <div className="bg-amber-950/80 backdrop-blur border border-amber-800 text-amber-100 rounded-lg px-3 py-2 text-xs max-w-xs">
           Serviço de fatiamento indisponível no momento. Tente novamente em instantes.
         </div>
       )}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-900 rounded px-3 py-2 text-xs max-w-xs whitespace-pre-wrap">
+        <div className="bg-red-950/80 backdrop-blur border border-red-800 text-red-100 rounded-lg px-3 py-2 text-xs max-w-xs whitespace-pre-wrap">
           {error}
         </div>
       )}
       {result && (
-        <div className="bg-white border rounded p-3 text-xs shadow space-y-2">
+        <div className="bg-slate-900/85 backdrop-blur border border-slate-700 rounded-xl p-3 text-xs shadow-card space-y-2 text-slate-200">
           <div>
-            <span className="text-gray-600">Tempo de impressão: </span>
-            <strong>{fmtPrintTime(result.meta.print_time_min)}</strong>
+            <span className="text-slate-400">Tempo de impressão: </span>
+            <strong className="text-white">{fmtPrintTime(result.meta.print_time_min)}</strong>
           </div>
           <div>
-            <span className="text-gray-600">Filamento: </span>
-            <strong>{fmtFilament(result.meta.filament_g)} · {fmtFilamentM(result.meta.filament_m)}</strong>
+            <span className="text-slate-400">Filamento: </span>
+            <strong className="text-white">{fmtFilament(result.meta.filament_g)} · {fmtFilamentM(result.meta.filament_m)}</strong>
           </div>
           <button
             onClick={download}
-            className="w-full bg-emerald-700 text-white rounded px-3 py-2 min-h-11"
+            className="w-full bg-emerald-600 text-white rounded-lg px-3 py-2 min-h-11 hover:bg-emerald-500 transition font-medium"
           >
             Baixar .3mf
           </button>

@@ -235,7 +235,7 @@ export default function Chat({
                 <img
                   src={m.imageUrl}
                   alt="attached"
-                  className="max-w-[150px] max-h-[150px] rounded-lg mb-1 inline-block ring-1 ring-slate-700"
+                  className="max-w-[110px] max-h-[110px] sm:max-w-[150px] sm:max-h-[150px] rounded-lg mb-1 inline-block ring-1 ring-slate-700"
                 />
               </div>
             )}
@@ -448,7 +448,7 @@ export default function Chat({
           onChange={(e) => setDraft(e.target.value)}
           placeholder='Descreva o que quer criar — ex.: "porta-lata cilíndrico com logo"'
           aria-label="Descreva o que quer criar"
-          className="flex-1 border border-slate-700 bg-slate-800 text-slate-100 placeholder:text-slate-500 rounded-lg px-3 py-2 min-h-11 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30"
+          className="flex-1 border border-slate-700 bg-slate-800 text-slate-100 placeholder:text-slate-500 rounded-lg px-3 py-2 min-h-11 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/40"
           disabled={busy}
           data-testid="chat-input"
         />

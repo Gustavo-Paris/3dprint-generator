@@ -25,7 +25,7 @@ function relativeTimePt(date: Date): string {
 function thumbStyle(id: string): React.CSSProperties {
   let acc = 0
   for (let i = 0; i < id.length; i++) acc = (acc * 31 + id.charCodeAt(i)) >>> 0
-  const hue = 205 + (acc % 55) // 205–260: blue → indigo, stays on-brand
+  const hue = 205 + (acc % 28) // 205–232: stay in the blue band, no violet drift
   return {
     backgroundImage: `linear-gradient(135deg, hsl(${hue} 84% 58%), hsl(${hue + 18} 72% 40%))`,
   }
@@ -97,7 +97,7 @@ export default async function Home({
               id="new-project-title"
               name="title"
               placeholder="Título do novo projeto"
-              className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              className="min-h-11 flex-1 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/40"
             />
             <button
               type="submit"
@@ -129,12 +129,6 @@ export default async function Home({
                     className="relative flex h-28 items-center justify-center overflow-hidden"
                     style={thumbStyle(p.id)}
                   >
-                    <span
-                      aria-hidden="true"
-                      className="absolute -right-2 bottom-[-1.5rem] select-none text-[6rem] font-bold leading-none text-white/15"
-                    >
-                      {(p.title?.trim()?.[0] ?? '3').toUpperCase()}
-                    </span>
                     <BrandMark className="h-9 w-9 opacity-95 drop-shadow-sm transition-transform duration-200 group-hover:scale-110" />
                   </div>
                   <div className="p-4">

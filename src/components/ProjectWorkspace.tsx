@@ -506,7 +506,8 @@ export default function ProjectWorkspace({
           </div>
         )}
 
-        {/* Color configuration panel */}
+        {/* Color configuration panel — only once a mesh is in the viewer */}
+        {positions && (
         <div className="absolute top-4 right-4 z-10 bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-3 shadow-card flex flex-col gap-2 text-xs text-slate-300">
           <div className="font-semibold text-white border-b border-slate-700 pb-1">Cores de Impressão</div>
           <div className="flex items-center gap-2">
@@ -532,6 +533,7 @@ export default function ProjectWorkspace({
             <label htmlFor="logo-color-picker" className="cursor-pointer font-medium">Cor do Logo (B)</label>
           </div>
         </div>
+        )}
 
         <SliceButton iterationId={iterationId} stl={stl} />
         {!error && <MeshValidityBanner report={validity} />}
@@ -542,6 +544,12 @@ export default function ProjectWorkspace({
             className="absolute bottom-4 left-4 right-4 bg-red-950/90 backdrop-blur text-red-100 border border-red-800 rounded-lg p-3 text-xs shadow-lift"
           >
             <strong>Erro:</strong> {error}
+          </div>
+        )}
+
+        {!iterationId && !positions && !error && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <p className="text-sm text-slate-500">Seu modelo 3D aparece aqui</p>
           </div>
         )}
       </section>

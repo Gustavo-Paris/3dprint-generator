@@ -71,13 +71,13 @@ export default function FlexifyButton({
         onClick={onClick}
         disabled={busy}
         aria-busy={busy}
-        className="bg-violet-600 text-white rounded px-3 py-2 text-sm shadow hover:bg-violet-700 disabled:opacity-50 font-medium"
+        className="bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm shadow-soft hover:bg-slate-800 disabled:opacity-50 font-medium transition"
         title="Turn this mesh into an articulated, print-in-place toy (~1-20s)"
       >
         {busy ? 'Flexifying… (~1-20s)' : '🦴 Make it flexi'}
       </button>
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-900 rounded px-3 py-2 text-xs max-w-xs whitespace-pre-wrap">
+        <div className="bg-red-950/80 backdrop-blur border border-red-800 text-red-100 rounded-lg px-3 py-2 text-xs max-w-xs whitespace-pre-wrap">
           {error}
         </div>
       )}
