@@ -142,6 +142,10 @@ function scaleDim(d: Design, axis: 'height' | 'width', factor: number): Design |
     if (axis === 'height') return { ...d, heightMm: clampDim(d.heightMm * factor) }
     if (axis === 'width')  return { ...d, widthMm:  clampDim(d.widthMm  * factor) }
   }
+  if (d.kind === 'box') {
+    if (axis === 'height') return { ...d, heightMm: clampDim(d.heightMm * factor) }
+    if (axis === 'width')  return { ...d, widthMm:  clampDim(d.widthMm  * factor) }
+  }
   // disc and pin have only diameter — interpret height/width bumps as diameter
   if (d.kind === 'disc' || d.kind === 'pin') {
     return { ...d, diameterMm: clampDim(d.diameterMm * factor) }

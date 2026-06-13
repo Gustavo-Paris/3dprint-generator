@@ -80,6 +80,7 @@ export async function generateFromDesign(
     case 'hollow_cylinder': result = await buildHollowCylinder(design, ctx); break
     case 'flat_plate':      result = await buildFlatPlate(design, ctx); break
     case 'disc':            result = await buildDisc(design, ctx); break
+    case 'box':             result = await buildBox(design, ctx); break
     case 'composite':       result = await buildComposite(design, ctx); break
     case 'bookmark':        result = await buildBookmark(design, ctx); break
     case 'pin':             result = await buildPin(design, ctx); break
@@ -430,6 +431,90 @@ async function applyFlatLogo(
   if (d.logo.treatment === 'embossed') {
     return { solid, logo: logoGeom3 }
   }
+  if (d.logo.treatment === 'engraved') {
+    const pocketSolid = booleans.subtract(solid, logoGeom3) as Geom3
+    const inlay = booleans.intersect(solid, logoGeom3) as Geom3
+    return { solid: pocketSolid, logo: inlay }
+  }
+  return { solid: booleans.subtract(solid, logoGeom3) as Geom3 }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// box (solid rectangular block / cube)
+// ────────────────────────────────────────────────────────────────────────────
+
+async function buildBox(
+  d: Extract<Design, { kind: 'box' }>,
+  ctx: GenerateContext,
+): Promise<InternalBuildResult> {
+  const maxRound = Math.min(d.widthMm, d.depthMm, d.heightMm) / 2 - 0.1
+  const round = Math.min(d.cornerRadiusMm, Math.max(0, maxRound))
+  const block: Geom3 = (round > 0
+    ? primitives.roundedCuboid({ size: [d.widthMm, d.depthMm, d.heightMm], roundRadius: round, segments: 24 })
+    : primitives.cuboid({ size: [d.widthMm, d.depthMm, d.heightMm] })) as Geom3
+
+  let solid: Geom3 = block
+  let logo: Geom3 | undefined
+  if (d.logo && ctx.logoImageBuffer) {
+    const res = await applyBoxLogo(solid, d, ctx.logoImageBuffer)
+    solid = res.solid
+    logo = res.logo
+  }
+
+  // Ground: shift so the bottom face sits at z=0 (print bed).
+  const shiftZ = d.heightMm / 2
+  solid = transforms.translate([0, 0, shiftZ], solid) as Geom3
+  if (logo) logo = transforms.translate([0, 0, shiftZ], logo) as Geom3
+
+  const bodies: MeshBody[] = [
+    { positions: geom3ToPositions(solid), extruder: d.extruder ?? 'A', label: 'Body' },
+  ]
+  if (logo) {
+    bodies.push({ positions: geom3ToPositions(logo), extruder: d.logo?.extruder ?? 'B', label: 'Logo' })
+  }
+
+  return {
+    bodies,
+    meta: { kind: 'box', bboxMm: { x: d.widthMm, y: d.depthMm, z: d.heightMm } },
+  }
+}
+
+async function applyBoxLogo(
+  solid: Geom3,
+  d: Extract<Design, { kind: 'box' }>,
+  imageBuffer: Buffer,
+): Promise<{ solid: Geom3; logo?: Geom3 }> {
+  if (!d.logo) return { solid }
+  const overshoot = 0.5
+  const engraveDepth = d.logo.depthMm ?? 1.5
+  const embossDepth = d.logo.depthMm ?? 2
+
+  // Top face is widthMm × depthMm; the host's Z thickness is heightMm.
+  const imgAspect = await readImageAspectRatio(imageBuffer)
+  const availW = d.widthMm * d.logo.sizeRatio
+  const availH = d.depthMm * d.logo.sizeRatio
+  const widthBound = { w: availW, h: availW / imgAspect }
+  const heightBound = { w: availH * imgAspect, h: availH }
+  const fit = widthBound.h <= availH ? widthBound : heightBound
+  const targetMaxDim = Math.max(fit.w, fit.h)
+
+  const slabT =
+    d.logo.treatment === 'through_cut' ? d.heightMm + overshoot * 2
+    : d.logo.treatment === 'embossed'  ? embossDepth + overshoot
+    : /* engraved */                     engraveDepth + overshoot
+
+  const logo = await extrudeLogo({
+    imageBuffer,
+    targetMaxDim,
+    depthMm: slabT,
+    ignoreHolesSmallerThan: 0,
+    binaryThreshold: d.logo.binaryThreshold,
+    addBridges: d.logo.addBridges,
+    texture: d.logo.texture,
+  })
+
+  const logoGeom3 = alignFlatLogoGeom3(logo.geom3, d.heightMm, d.logo, slabT, overshoot)
+  if (d.logo.treatment === 'embossed') return { solid, logo: logoGeom3 }
   if (d.logo.treatment === 'engraved') {
     const pocketSolid = booleans.subtract(solid, logoGeom3) as Geom3
     const inlay = booleans.intersect(solid, logoGeom3) as Geom3

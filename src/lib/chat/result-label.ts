@@ -1,5 +1,5 @@
 export type GenerateMeta = {
-  kind?: 'hollow_cylinder' | 'flat_plate' | 'disc'
+  kind?: 'hollow_cylinder' | 'flat_plate' | 'disc' | 'box'
   bbox_mm?: { x: number; y: number; z: number }
 }
 
@@ -7,6 +7,7 @@ const LABEL_BY_KIND: Record<string, string> = {
   hollow_cylinder: 'Porta-lata / sleeve',
   flat_plate: 'Placa / chaveiro',
   disc: 'Disco / medalha',
+  box: 'Caixa / cubo',
 }
 
 /** Human label + mm dims for the chat assistant bubble. Tolerates a missing

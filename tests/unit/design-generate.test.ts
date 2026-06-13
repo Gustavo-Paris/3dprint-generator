@@ -350,6 +350,45 @@ describe('generateFromDesign — disc', () => {
   })
 })
 
+describe('generateFromDesign — box', () => {
+  it('builds a true cube grounded at z=0 (width = depth = height)', async () => {
+    const design = Design.parse({
+      kind: 'box', widthMm: 30, depthMm: 30, heightMm: 30, cornerRadiusMm: 0,
+    })
+    const result = await generateFromDesign(design, { logoImageBuffer: null })
+    expect(result.meta.kind).toBe('box')
+    const b = bbox(result.stl)
+    expect(b.maxX - b.minX).toBeCloseTo(30, 0)
+    expect(b.maxY - b.minY).toBeCloseTo(30, 0)
+    expect(b.maxZ - b.minZ).toBeCloseTo(30, 0)
+    expect(b.minZ).toBeCloseTo(0, 1)                  // grounded — bottom on bed
+    expect(b.triangleCount).toBeGreaterThan(0)
+  })
+
+  it('honors distinct width/depth/height (rectangular block)', async () => {
+    const design = Design.parse({
+      kind: 'box', widthMm: 60, depthMm: 40, heightMm: 20, cornerRadiusMm: 0,
+    })
+    const b = bbox((await generateFromDesign(design, { logoImageBuffer: null })).stl)
+    expect(b.maxX - b.minX).toBeCloseTo(60, 0)
+    expect(b.maxY - b.minY).toBeCloseTo(40, 0)
+    expect(b.maxZ - b.minZ).toBeCloseTo(20, 0)
+  })
+
+  it('engraves a top-face logo (adds a separate logo body)', async () => {
+    const plain = Design.parse({ kind: 'box', widthMm: 40, depthMm: 40, heightMm: 20 })
+    const withLogo = Design.parse({
+      kind: 'box', widthMm: 40, depthMm: 40, heightMm: 20,
+      logo: { treatment: 'engraved', position: 'top_face', sizeRatio: 0.7 },
+    })
+    const a = await generateFromDesign(plain, { logoImageBuffer: null })
+    const b = await generateFromDesign(withLogo, { logoImageBuffer: dummyLogo })
+    expect(a.bodies.length).toBe(1)
+    expect(b.bodies.length).toBe(2)                   // body + logo inlay
+    expect(b.bodies[1].label).toBe('Logo')
+  })
+})
+
 describe('generateFromDesign — bookmark', () => {
   it('builds a bookmark strip with correct dimensions', async () => {
     const design = Design.parse({

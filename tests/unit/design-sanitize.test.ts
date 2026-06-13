@@ -49,6 +49,28 @@ describe('sanitizeDesign — hollow_cylinder', () => {
   })
 })
 
+describe('sanitizeDesign — box', () => {
+  it('clamps an absurd dimension down to 250mm', () => {
+    const input = Design.parse({ kind: 'box', widthMm: 9000, depthMm: 30, heightMm: 30 })
+    const { design, adjustments } = sanitizeDesign(input)
+    expect((design as { widthMm: number }).widthMm).toBe(250)
+    expect(adjustments).toContainEqual({ field: 'widthMm', from: 9000, to: 250 })
+  })
+
+  it('clamps corner radius to half the smallest dim', () => {
+    const input = Design.parse({ kind: 'box', widthMm: 40, depthMm: 40, heightMm: 10, cornerRadiusMm: 30 })
+    const { design } = sanitizeDesign(input)
+    // smallest dim is heightMm=10 → max radius 5
+    expect((design as { cornerRadiusMm: number }).cornerRadiusMm).toBe(5)
+  })
+
+  it('passes a sane cube through unchanged', () => {
+    const input = Design.parse({ kind: 'box', widthMm: 30, depthMm: 30, heightMm: 30, cornerRadiusMm: 0 })
+    const { adjustments } = sanitizeDesign(input)
+    expect(adjustments).toEqual([])
+  })
+})
+
 describe('sanitizeDesign — flat_plate', () => {
   it('clamps corner radius that exceeds half the smallest dim', () => {
     const input = Design.parse({

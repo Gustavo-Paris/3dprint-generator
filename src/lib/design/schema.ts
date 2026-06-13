@@ -139,6 +139,18 @@ const Disc = z.object({
   extruder: z.enum(['A', 'B']).default('A'),
 })
 
+const Box = z.object({
+  kind: z.literal('box'),
+  /** X / Y / Z in mm. A cube is simply width = depth = height. */
+  widthMm: z.number().positive(),
+  depthMm: z.number().positive(),
+  heightMm: z.number().positive(),
+  /** 0 = sharp edges; >0 rounds all 12 edges. */
+  cornerRadiusMm: z.number().nonnegative().default(0),
+  logo: LogoSpec.optional(),
+  extruder: z.enum(['A', 'B']).default('A'),
+})
+
 const Bookmark = z.object({
   kind: z.literal('bookmark'),
   widthMm: z.number().positive().default(25),
@@ -190,6 +202,7 @@ const Primitive = z.discriminatedUnion('kind', [
   HollowCylinder,
   FlatPlate,
   Disc,
+  Box,
   Bookmark,
   Pin,
   CustomKeychain,
@@ -312,6 +325,7 @@ export const Design = z.discriminatedUnion('kind', [
   HollowCylinder,
   FlatPlate,
   Disc,
+  Box,
   Composite,
   Bookmark,
   Pin,

@@ -187,6 +187,12 @@ A discriminated union on 'kind'. Pick ONE of:
   "logo": { ... } | omit,
   "extruder": "A" | "B" (default "A") }
 
+{ "kind": "box",
+  "widthMm": <number>, "depthMm": <number>, "heightMm": <number>,
+  "cornerRadiusMm": <number, default 0 — set >0 for rounded edges>,
+  "logo": { ... } | omit,
+  "extruder": "A" | "B" (default "A") }
+
 { "kind": "disc",
   "diameterMm": <number>,
   "thicknessMm": <number, default 5>,
@@ -268,10 +274,17 @@ By default, the main body uses Extruder "A" and the logo uses Extruder "B" (mult
 - custom_keychain — chaveiro personalizado cuja base acompanha a silhueta do logo: "chaveiro personalizado", "chaveiro com formato da logo", "chaveiro silhueta".
 - flat_plate — rectangular keychains (chaveiro retangular), magnets (ímãs), desk plaques (plaquinha), nameplates.
 - disc — round flat things: coasters (porta-copo), medals (medalha), round pendants.
+- box — solid rectangular block / cube: "cubo", "caixa", "bloco", "dado", "base sólida retangular". A true 3D volume (width×depth×height). For THIN flat items prefer flat_plate; use box when depth/height matter (a real cube/block). A cube = width = depth = height.
 - bookmark — bookmarks (marca-página).
 - pin — lapel pins, badges, buttons (pin, botão, badge, broche). Default position is bottom_face and engraved.
 
 # Examples
+
+User: "um cubo de 30mm"
+→ {"kind":"box","widthMm":30,"depthMm":30,"heightMm":30,"cornerRadiusMm":0}
+
+User: "uma caixa de 60x40x30mm com cantos arredondados"
+→ {"kind":"box","widthMm":60,"depthMm":40,"heightMm":30,"cornerRadiusMm":3}
 
 User: "caneca com a logo"
 → {"kind":"mug","insideDiameterMm":80,"heightMm":95,"wallMm":4,"baseMm":5,"handleHeightMm":65,"handleStickOutMm":30,"handleThicknessMm":10,"logo":{"treatment":"through_cut","position":"front_face","sizeRatio":0.5}}

@@ -34,6 +34,12 @@ const RANGE = {
     hangingRingInnerMm: [1, 20] as const,
     hangingHoleDiameterMm: [2, 15] as const,
   },
+  box: {
+    widthMm: [10, 250] as const,
+    depthMm: [10, 250] as const,
+    heightMm: [10, 250] as const,
+    cornerRadiusMm: [0, 50] as const,
+  },
   bookmark: {
     widthMm: [15, 60] as const,
     heightMm: [60, 200] as const,
@@ -183,6 +189,24 @@ export function sanitizeDesign(input: Design): SanitizeResult {
         position: input.hangingHole.position,
       }
     }
+    if (input.logo) out.logo = sanitizeLogo(input.logo, adjustments)
+    return { design: out, adjustments }
+  }
+
+  if (input.kind === 'box') {
+    const R = RANGE.box
+    const widthMm = adj('widthMm', input.widthMm, ...R.widthMm)
+    const depthMm = adj('depthMm', input.depthMm, ...R.depthMm)
+    const heightMm = adj('heightMm', input.heightMm, ...R.heightMm)
+    // Corner radius can't exceed half the smallest dim.
+    const cornerMaxByDim = Math.min(widthMm, depthMm, heightMm) / 2
+    const cornerRadiusMm = adj(
+      'cornerRadiusMm',
+      input.cornerRadiusMm,
+      R.cornerRadiusMm[0],
+      Math.min(R.cornerRadiusMm[1], cornerMaxByDim),
+    )
+    const out: Design = { ...input, widthMm, depthMm, heightMm, cornerRadiusMm }
     if (input.logo) out.logo = sanitizeLogo(input.logo, adjustments)
     return { design: out, adjustments }
   }

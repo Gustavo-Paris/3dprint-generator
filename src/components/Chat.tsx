@@ -29,6 +29,8 @@ function designSummary(design: unknown): string {
     parts.push(`disco ⌀${d.diameterMm}×${d.thicknessMm}mm`)
     if (d.hangingRing) parts.push('com ring')
     if (d.hangingHole) parts.push('com furo')
+  } else if (kind === 'box') {
+    parts.push(`caixa ${d.widthMm}×${d.depthMm}×${d.heightMm}mm`)
   } else {
     parts.push(kind)
   }
@@ -171,7 +173,7 @@ export default function Chat({
         design_adjustments?: Array<{ field: string; from: number; to: number }>
         warnings?: Array<{ opIndex: number; op: string; reason: string }>
         meta?: {
-          kind?: 'hollow_cylinder' | 'flat_plate' | 'disc'
+          kind?: 'hollow_cylinder' | 'flat_plate' | 'disc' | 'box'
           bbox_mm?: { x: number; y: number; z: number }
         }
       }
