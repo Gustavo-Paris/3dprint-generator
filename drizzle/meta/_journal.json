@@ -43,6 +43,13 @@
       "when": 1781291219987,
       "tag": "0005_narrow_sharon_carter",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781366880795,
+      "tag": "0006_funny_black_queen",
+      "breakpoints": true
     }
   ]
 }

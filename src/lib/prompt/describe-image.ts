@@ -31,7 +31,7 @@ export async function describeImage(imageUrl: string): Promise<string> {
   }
 
   const { text } = await generateText({
-    model: getClassifierModel(),
+    model: await getClassifierModel(),
     messages: [
       {
         role: 'user',

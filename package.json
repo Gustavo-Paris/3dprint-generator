@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.78",
+    "@ai-sdk/openai-compatible": "^2.0.50",
     "@auth/drizzle-adapter": "^1.11.2",
     "@jscad/modeling": "^2.13.0",
     "@react-three/drei": "^10.7.7",

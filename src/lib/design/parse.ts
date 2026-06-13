@@ -63,7 +63,7 @@ ${JSON.stringify(previousDesign, null, 2)}`
     : 'PREVIOUS DESIGN: (none — this is the first build in the project)'
 
   const { text } = await generateText({
-    model: getClassifierModel(),
+    model: await getClassifierModel(),
     system: SYSTEM,
     prompt: `LOGO IMAGE: ${imageDescription ?? '(none attached)'}
 LOGO ASPECT RATIO (width/height): ${
@@ -99,7 +99,7 @@ Reply with ONLY valid JSON matching the schema. No markdown, no prose, no \`\`\`
   // One repair re-ask: hand the model its own bad output + the error and let it
   // correct itself before we give up.
   const { text: repaired } = await generateText({
-    model: getClassifierModel(),
+    model: await getClassifierModel(),
     system: SYSTEM,
     prompt:
       `Your previous reply was not a valid Design JSON.\n` +

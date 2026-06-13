@@ -61,19 +61,28 @@ export default async function Home({
           <Link href="/" className="rounded-md" aria-label="Gerador 3D — início">
             <Brand />
           </Link>
-          <form
-            action={async () => {
-              'use server'
-              await signOut({ redirectTo: '/sign-in' })
-            }}
-          >
-            <button className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900">
-              <span className="hidden max-w-[200px] truncate text-slate-400 sm:inline">
-                {session.user.email}
-              </span>
-              <span className="font-medium">Sair</span>
-            </button>
-          </form>
+          <div className="flex items-center gap-1">
+            <Link
+              href="/settings"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+            >
+              <span aria-hidden="true">⚙</span>
+              <span className="hidden sm:inline">Configurações</span>
+            </Link>
+            <form
+              action={async () => {
+                'use server'
+                await signOut({ redirectTo: '/sign-in' })
+              }}
+            >
+              <button className="inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900">
+                <span className="hidden max-w-[160px] truncate text-slate-400 sm:inline">
+                  {session.user.email}
+                </span>
+                <span className="font-medium">Sair</span>
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 

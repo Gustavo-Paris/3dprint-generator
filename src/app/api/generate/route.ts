@@ -12,7 +12,7 @@
  * No detector ladder, no per-composer routing. One design, one generator.
  */
 import { auth } from '@/auth'
-import { env } from '@/env'
+import { resolveConfig } from '@/lib/settings/store'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { designKindToStrategy } from '@/db/strategy'
@@ -29,7 +29,7 @@ import { Body } from './body-schema'
 import type { PreviewBundle } from '@/lib/design/parse-import'
 import type { SemanticFace } from '@/lib/import/types'
 import { serialize3mf } from '@/lib/3mf/serialize-3mf'
-import { generateMesh, generateMeshFromImage, isMeshyConfigured } from '@/lib/meshy/client'
+import { generateMesh, generateMeshFromImage } from '@/lib/meshy/client'
 import { apiError } from '@/lib/http/api-error'
 import { assertUrlIsPublic } from '@/lib/http/is-public-url'
 import { isOwnMeshUrl } from '@/lib/http/owns-mesh-url'
@@ -290,13 +290,13 @@ export async function POST(req: Request) {
   let metaBbox: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }
   let editWarnings: Array<{ opIndex: number; op: string; reason: string }> = []
   if (design.kind === 'freeform') {
-    if (!isMeshyConfigured()) {
+    const { meshyApiKey: apiKey } = await resolveConfig()
+    if (!apiKey) {
       await db.update(iterations)
-        .set({ status: 'failed', error: 'Freeform generation not configured (MESHY_API_KEY missing)' })
+        .set({ status: 'failed', error: 'Freeform generation not configured (Meshy key missing)' })
         .where(eq(iterations.id, iteration.id))
       return apiError(503, 'freeform_unavailable', 'A geração freeform não está configurada.', { iteration_id: iteration.id })
     }
-    const apiKey = env.MESHY_API_KEY as string
     const meshy = design.sourceImageUrl
       ? await generateMeshFromImage({ imageUrl: design.sourceImageUrl, apiKey })
       : await generateMesh({ prompt: design.prompt, apiKey })

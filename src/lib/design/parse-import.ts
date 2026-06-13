@@ -84,7 +84,7 @@ export async function parseImportEdit(input: ParseImportEditInput): Promise<Desi
     `Reply ONLY with valid JSON: { "kind": "imported", "baseMeshUrl": "${baseMeshUrl}", "edits": [...] }`
 
   const { text } = await generateText({
-    model: getModel(),
+    model: await getModel(),
     system: SYSTEM,
     messages: [
       {
@@ -108,7 +108,7 @@ export async function parseImportEdit(input: ParseImportEditInput): Promise<Desi
   // One repair re-ask, text-only (the bad output + error is enough; no need to
   // re-send the preview images).
   const { text: repaired } = await generateText({
-    model: getModel(),
+    model: await getModel(),
     system: SYSTEM,
     prompt:
       `Your previous reply was not a valid imported-edit JSON.\n` +

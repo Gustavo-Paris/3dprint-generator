@@ -11,6 +11,20 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 })
 
+/** Singleton (id = 1) instance configuration — bring-your-own API keys for
+ *  self-hosters. Secret columns hold AES-256-GCM ciphertext (lib/crypto/secret.ts),
+ *  never plaintext. Env vars act as the fallback when a column is null. */
+export const appSettings = pgTable('app_settings', {
+  id: integer('id').primaryKey().default(1),
+  aiBaseUrl: text('ai_base_url'),
+  aiModel: text('ai_model'),
+  aiClassifierModel: text('ai_classifier_model'),
+  aiApiKeyEnc: text('ai_api_key_enc'),
+  meshyApiKeyEnc: text('meshy_api_key_enc'),
+  slicerUrl: text('slicer_url'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
 export const accounts = pgTable(
   'accounts',
   {
