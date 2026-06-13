@@ -9,6 +9,7 @@ import { appSettings } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { env } from '@/env'
 import { encryptSecret, decryptSecret } from '@/lib/crypto/secret'
+import { assertSafeOutboundUrl } from '@/lib/http/outbound-url'
 
 const SINGLETON_ID = 1
 type Row = typeof appSettings.$inferSelect
@@ -106,13 +107,19 @@ export async function saveSettings(input: SaveSettingsInput): Promise<void> {
   const existing = await readRow()
   const aiKey = norm(input.aiApiKey)
   const meshyKey = norm(input.meshyApiKey)
+  const aiBaseUrl = norm(input.aiBaseUrl)
+  const slicerUrl = norm(input.slicerUrl)
+  // Reject cloud-metadata endpoints (SSRF) before persisting. localhost/LAN are
+  // intentionally allowed (self-hosted local models).
+  if (aiBaseUrl) assertSafeOutboundUrl(aiBaseUrl, 'Base URL da IA')
+  if (slicerUrl) assertSafeOutboundUrl(slicerUrl, 'Slicer URL')
 
   const row = {
     id: SINGLETON_ID,
-    aiBaseUrl: norm(input.aiBaseUrl),
+    aiBaseUrl,
     aiModel: norm(input.aiModel),
     aiClassifierModel: norm(input.aiClassifierModel),
-    slicerUrl: norm(input.slicerUrl),
+    slicerUrl,
     aiApiKeyEnc: input.clearAiApiKey
       ? null
       : aiKey

@@ -12,6 +12,10 @@ const schema = z.object({
   AUTH_RESEND_KEY: z.string().min(1),
   AUTH_EMAIL_FROM: z.string().email(),
   AUTH_ALLOWED_EMAILS: z.string().min(1),
+  // Only this email may change instance Settings (shared singleton: API keys,
+  // base URLs). Optional — defaults to the FIRST entry of AUTH_ALLOWED_EMAILS,
+  // so a single-user self-host needs no extra config.
+  ADMIN_EMAIL: z.string().optional(),
   // Bring-your-own AI (OpenAI-compatible: OpenAI, OpenRouter, Together, Groq,
   // local Ollama/LM Studio, …). Set via these env vars OR the in-app Settings
   // page (which takes precedence). AI_BASE_URL + AI_MODEL enable this path.
@@ -52,3 +56,14 @@ export const env = parsed.data
 export const allowedEmails = new Set(
   env.AUTH_ALLOWED_EMAILS.split(',').map((e) => e.trim().toLowerCase()),
 )
+
+// Admin = ADMIN_EMAIL if set, else the first entry of the allowlist. Only the
+// admin may read/change instance Settings (the shared app_settings singleton).
+export const adminEmail =
+  env.ADMIN_EMAIL?.trim().toLowerCase() ||
+  env.AUTH_ALLOWED_EMAILS.split(',')[0]?.trim().toLowerCase() ||
+  null
+
+export function isAdminEmail(email: string | null | undefined): boolean {
+  return !!email && !!adminEmail && email.trim().toLowerCase() === adminEmail
+}

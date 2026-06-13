@@ -1,4 +1,5 @@
 import { auth } from '@/auth'
+import { isAdminEmail } from '@/env'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Brand } from '@/components/Brand'
@@ -10,11 +11,13 @@ export const metadata = { title: 'Configurações' }
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string }>
+  searchParams: Promise<{ saved?: string; error?: string }>
 }) {
   const session = await auth()
   if (!session?.user?.id) redirect('/sign-in')
-  const { saved } = await searchParams
+  // Instance settings are a shared singleton — admin only.
+  if (!isAdminEmail(session.user.email)) redirect('/')
+  const { saved, error } = await searchParams
   const s = await readSettingsView()
 
   const inputCls =
@@ -50,6 +53,11 @@ export default async function SettingsPage({
         {saved && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
             Configurações salvas.
+          </div>
+        )}
+        {error && (
+          <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            {error}
           </div>
         )}
 

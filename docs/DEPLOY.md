@@ -22,6 +22,7 @@ pnpm db:migrate
 | `AUTH_SECRET` | `pnpm dlx auth secret`. Also encrypts Settings-stored API keys — keep it stable. |
 | `AUTH_URL` | **Required in production** — the canonical origin (e.g. `https://app.example.com`). Pins magic-link callbacks against Host-header injection. |
 | `AUTH_RESEND_KEY`, `AUTH_EMAIL_FROM`, `AUTH_ALLOWED_EMAILS` | Magic-link email + sign-in allowlist |
+| `ADMIN_EMAIL` | *(optional)* who may change Settings; defaults to the first `AUTH_ALLOWED_EMAILS` entry |
 
 ### AI + Meshy
 

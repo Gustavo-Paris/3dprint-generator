@@ -1,4 +1,5 @@
 import { auth, signOut } from '@/auth'
+import { isAdminEmail } from '@/env'
 import { db } from '@/db'
 import { projects } from '@/db/schema'
 import { count, desc, eq } from 'drizzle-orm'
@@ -62,13 +63,15 @@ export default async function Home({
             <Brand />
           </Link>
           <div className="flex items-center gap-1">
-            <Link
-              href="/settings"
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-            >
-              <span aria-hidden="true">⚙</span>
-              <span className="hidden sm:inline">Configurações</span>
-            </Link>
+            {isAdminEmail(session.user.email) && (
+              <Link
+                href="/settings"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+              >
+                <span aria-hidden="true">⚙</span>
+                <span className="hidden sm:inline">Configurações</span>
+              </Link>
+            )}
             <form
               action={async () => {
                 'use server'

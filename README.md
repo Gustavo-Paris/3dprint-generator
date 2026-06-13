@@ -122,9 +122,14 @@ See [`docs/DEPLOY.md`](docs/DEPLOY.md) for Railway / Vercel + the slicer service
 ## Security
 
 API keys are encrypted at rest (AES-256-GCM; key derived from `AUTH_SECRET`) and
-never sent back to the browser in plaintext. LLM-generated code only ever executes
-inside the Web Worker sandbox — `git grep -nE "FunctionCtor|dynamicEval"` must only
-hit that one file. Report vulnerabilities via a private GitHub security advisory.
+never sent back to the browser in plaintext. The Settings page is a shared instance
+singleton, so it's **admin-only** — `ADMIN_EMAIL` (defaults to the first
+`AUTH_ALLOWED_EMAILS` entry). Admin-set base URLs (AI / slicer) block the cloud
+instance-metadata endpoint (`169.254.0.0/16` + metadata hostnames) to limit SSRF,
+while **localhost/LAN are intentionally allowed** so you can point at a local model
+(Ollama/LM Studio). LLM-generated code only ever executes inside the Web Worker
+sandbox — `git grep -nE "FunctionCtor|dynamicEval"` must only hit that one file.
+Report vulnerabilities via a private GitHub security advisory.
 
 ## Contributing
 
