@@ -8,9 +8,21 @@ export interface MeshBodyData {
 
 /** Parse a .3mf (zip-of-xml). Handles both the simple layout
  *  (everything in `3D/3dmodel.model`) and the Bambu/Prusa/Orca layout
- *  that splits geometry into `3D/Objects/object_N.model` per object. */
+ *  that splits geometry into `3D/Objects/object_N.model` per object.
+ *
+ *  Extruder/filament per body is recovered from `Metadata/model_settings.config`
+ *  (`<part id="N"><metadata key="extruder" value="1|2"/>`), which is what we now
+ *  emit and what Bambu honours. For backward compatibility with meshes serialized
+ *  before that change, it falls back to the legacy per-triangle `p1` attribute. */
 export function parse3mf(zipData: Uint8Array): MeshBodyData[] {
   const files = unzipSync(zipData)
+
+  // object id -> extruder, parsed from model_settings.config (new format).
+  const extruderByObjectId = new Map<string, 'A' | 'B'>()
+  const cfg = files['Metadata/model_settings.config']
+  if (cfg) {
+    parseModelSettings(new TextDecoder().decode(cfg), extruderByObjectId)
+  }
 
   // Collect every `.model` file under `3D/` — that's where geometry lives.
   const modelXmls: string[] = []
@@ -28,15 +40,33 @@ export function parse3mf(zipData: Uint8Array): MeshBodyData[] {
 
   const bodies: MeshBodyData[] = []
   for (const xml of modelXmls) {
-    bodies.push(...parseModelXml(xml))
+    bodies.push(...parseModelXml(xml, extruderByObjectId))
   }
   return bodies
 }
 
-function parseModelXml(xml: string): MeshBodyData[] {
+/** Populate `out` with object-id -> extruder from a model_settings.config XML.
+ *  `<part id="2" ...><metadata key="extruder" value="2"/></part>` => id 2 -> 'B'. */
+function parseModelSettings(xml: string, out: Map<string, 'A' | 'B'>): void {
+  const partRegex = /<part\s+id="([^"]+)"[^>]*>([\s\S]*?)<\/part>/gi
+  let match: RegExpExecArray | null
+  while ((match = partRegex.exec(xml)) !== null) {
+    const partId = match[1]
+    const body = match[2]
+    const ex = /key="extruder"\s+value="([^"]+)"/i.exec(body)
+    if (ex) {
+      out.set(partId, ex[1].trim() === '2' ? 'B' : 'A')
+    }
+  }
+}
+
+function parseModelXml(
+  xml: string,
+  extruderByObjectId: Map<string, 'A' | 'B'>,
+): MeshBodyData[] {
   const objectRegex = /<object\s+id="([^"]+)"[^>]*>([\s\S]*?)<\/object>/gi
   const vertexRegex = /<vertex\s+x="([^"]+)"\s+y="([^"]+)"\s+z="([^"]+)"/gi
-  // p1 is optional (only present in multi-material 3MFs from BambuStudio etc.)
+  // p1 is optional — only present in legacy multi-material 3MFs we used to emit.
   const triangleRegex = /<triangle\s+v1="([^"]+)"\s+v2="([^"]+)"\s+v3="([^"]+)"(?:[^>]*?\sp1="([^"]+)")?[^>]*?\/?>/gi
 
   const bodies: MeshBodyData[] = []
@@ -54,13 +84,11 @@ function parseModelXml(xml: string): MeshBodyData[] {
       vertices.push([parseFloat(vMatch[1]), parseFloat(vMatch[2]), parseFloat(vMatch[3])])
     }
 
-    // Parse triangles and infer extruder when p1 is present.
-    // Two-pass: count valid triangles first so we can allocate the exact
-    // Float32Array up front and write by index (no growing number[] + no
-    // per-triangle spread).
-    let extruder: 'A' | 'B' = 'A'
+    // Extruder: prefer model_settings.config mapping; fall back to legacy p1.
+    let extruder: 'A' | 'B' = extruderByObjectId.get(objId) ?? 'A'
+    const hasConfigExtruder = extruderByObjectId.has(objId)
 
-    // Pass 1: count valid triangles (all three verts resolvable).
+    // Two-pass over triangles: count valid ones first to allocate exactly.
     let triCount = 0
     triangleRegex.lastIndex = 0
     let cMatch: RegExpExecArray | null
@@ -71,7 +99,6 @@ function parseModelXml(xml: string): MeshBodyData[] {
       if (vertices[a] && vertices[b] && vertices[c]) triCount++
     }
 
-    // Pass 2: fill the preallocated buffer (9 floats per triangle).
     const positions = new Float32Array(triCount * 9)
     let w = 0
     triangleRegex.lastIndex = 0
@@ -81,7 +108,7 @@ function parseModelXml(xml: string): MeshBodyData[] {
       const v2 = parseInt(tMatch[2], 10)
       const v3 = parseInt(tMatch[3], 10)
       const p1Attr = tMatch[4]  // may be undefined when p1 isn't present
-      if (p1Attr === '1') extruder = 'B'
+      if (!hasConfigExtruder && p1Attr === '1') extruder = 'B'
 
       const pt1 = vertices[v1]
       const pt2 = vertices[v2]
