@@ -17,6 +17,10 @@ const webServer = process.env.E2E_BASE_URL
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
+  // All e2e tests sign in as the same single allowed email and share one DB, so
+  // they are not parallel-safe (Playwright still spreads files across multiple
+  // workers despite fullyParallel:false). Serialize in CI.
+  workers: process.env.CI ? 1 : undefined,
   retries: 0,
   use: {
     baseURL,

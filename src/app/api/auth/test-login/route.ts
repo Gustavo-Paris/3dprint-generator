@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
-import { eq } from 'drizzle-orm'
 import { db } from '@/db'
-import { users, sessions } from '@/db/schema'
+import { sessions } from '@/db/schema'
+import { findOrCreateUser } from '@/lib/auth/find-or-create-user'
 import { env, allowedEmails } from '@/env'
 
 /**
@@ -26,12 +26,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Email not allowed' }, { status: 403 })
   }
 
-  // Upsert user
-  let user = await db.query.users.findFirst({ where: eq(users.email, normalised) })
-  if (!user) {
-    const [inserted] = await db.insert(users).values({ email: normalised }).returning()
-    user = inserted
-  }
+  // Concurrency-safe upsert: the e2e suite runs parallel workers that all sign
+  // in as the same email, so a naive findFirst-then-insert raced and 500'd here.
+  const user = await findOrCreateUser(normalised)
 
   // Create session (30-day expiry)
   const sessionToken = randomUUID()

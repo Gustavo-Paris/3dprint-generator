@@ -2,9 +2,9 @@ import NextAuth from 'next-auth'
 import Resend from 'next-auth/providers/resend'
 import Credentials from 'next-auth/providers/credentials'
 import { DrizzleAdapter } from '@auth/drizzle-adapter'
-import { eq } from 'drizzle-orm'
 import { db } from '@/db'
 import { users, accounts, sessions, verificationTokens } from '@/db/schema'
+import { findOrCreateUser } from '@/lib/auth/find-or-create-user'
 import { allowedEmails, env } from '@/env'
 
 const isE2E = env.E2E_ALLOW_TEST_LOGIN === '1'
@@ -34,9 +34,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             async authorize(credentials) {
               const email = String(credentials?.email ?? '').toLowerCase()
               if (!allowedEmails.has(email)) return null
-              const existing = await db.query.users.findFirst({ where: eq(users.email, email) })
-              if (existing) return { id: existing.id, email }
-              const [u] = await db.insert(users).values({ email }).returning()
+              const u = await findOrCreateUser(email)
               return { id: u.id, email }
             },
           }),
