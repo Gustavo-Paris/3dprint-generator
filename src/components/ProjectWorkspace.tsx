@@ -14,6 +14,7 @@ import FlexifyButton from './FlexifyButton'
 import MeshValidityBanner from './MeshValidityBanner'
 import { runInWorker } from '@/lib/jscad/worker-client'
 import type { MeshValidityReport } from '@/lib/mesh/validity'
+import type { BaseMesh } from '@/lib/import/types'
 
 // Defer the three.js + R3F + drei graph (~928KB) off the workspace's eager
 // chunk. ssr:false is valid here — ProjectWorkspace is a Client Component
@@ -66,6 +67,57 @@ export function hasImportedBase(
   })
 }
 
+/**
+ * Suggest a logo size that fills most of the visible face (not a tiny stamp).
+ * Uses the two largest bbox axes as the face, takes ~80% of the smaller of
+ * those, clamped to a printable range.
+ */
+export function suggestedLogoSizeMm(positions: Float32Array | null | undefined): number {
+  if (!positions || positions.length < 9) return 45
+  let minX = Infinity, minY = Infinity, minZ = Infinity
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+  for (let i = 0; i < positions.length; i += 3) {
+    const x = positions[i], y = positions[i + 1], z = positions[i + 2]
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (z < minZ) minZ = z
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+    if (z > maxZ) maxZ = z
+  }
+  const dims = [maxX - minX, maxY - minY, maxZ - minZ].sort((a, b) => b - a)
+  // dims[0]=longest, dims[1]=second → characteristic face width
+  const face = Math.min(dims[0], dims[1])
+  return Math.round(Math.max(28, Math.min(140, face * 0.8)))
+}
+
+/** Body for POST /api/generate click-to-place logo. Must include pending mesh +
+ *  image the same way Chat.send does — otherwise a fresh .3mf upload shows the
+ *  placement UI (hasImportedBase) but the API returns 400 no_imported_mesh. */
+export function buildLogoPlacementBody(opts: {
+  projectId: string
+  message: string
+  logoPlacement: {
+    point: [number, number, number]
+    normal: [number, number, number]
+    treatment: 'embossed' | 'engraved'
+    sizeMm: number
+    depthMm: number
+  }
+  pendingMeshUrl: string | null
+  pendingPreviews: PreviewBundle | null
+  imageUrl: string | null
+}) {
+  return {
+    projectId: opts.projectId,
+    message: opts.message,
+    meshUrl: opts.pendingMeshUrl ?? undefined,
+    previewDataUrls: opts.pendingPreviews ?? undefined,
+    imageUrl: opts.imageUrl ?? undefined,
+    logoPlacement: opts.logoPlacement,
+  }
+}
+
 /** Build the chat transcript from iteration history, branching on status so a
  *  failed row shows its error and an in-flight row shows a spinner label —
  *  instead of every row reading as "Generated". */
@@ -101,14 +153,22 @@ export function mapHistoryToMessages(history: HistoryRow[]): ChatMsg[] {
         status: it.status,
       }]
     }
-    if (it.strategy === 'generative') {
+    // Mesh-backed strategies (legacy 'generative' + real design kinds: imported,
+    // freeform, flexified, …). Any ready row with a meshBlobUrl hydrates the chat.
+    if (it.meshBlobUrl && (it.status === 'ready' || it.status === 'sliced')) {
+      const design = it.validationReport ?? undefined
+      const kind = (design as { kind?: string } | undefined)?.kind ?? it.strategy
+      const text =
+        kind === 'imported' ? 'Malha importada atualizada'
+        : kind === 'freeform' ? 'Modelo freeform gerado'
+        : 'Pronto'
       return [userMsg, {
         role: 'assistant' as const,
-        text: 'Pronto',
+        text,
         iterationId: it.id,
         strategy: 'generative' as const,
         status: it.status,
-        design: it.validationReport ?? undefined,
+        design,
       }]
     }
     return [userMsg]
@@ -118,9 +178,12 @@ export function mapHistoryToMessages(history: HistoryRow[]): ChatMsg[] {
 export default function ProjectWorkspace({
   project,
   initialHistory,
+  printConfig,
 }: {
   project: Project
   initialHistory: HistoryRow[]
+  /** Non-secret print settings resolved server-side (Settings singleton). */
+  printConfig?: { printerModel: string | null; bodyHex: string; accentHex: string }
 }) {
   const lastReady = initialHistory.findLast(
     (it) => it.status === 'ready' || it.status === 'sliced',
@@ -143,6 +206,18 @@ export default function ProjectWorkspace({
   const meshViewerRef = useRef<MeshViewerHandle>(null)
   const [pendingMeshUrl, setPendingMeshUrl] = useState<string | null>(null)
   const [pendingPreviews, setPendingPreviews] = useState<PreviewBundle | null>(null)
+  // Live chat attachment (Chat owns the upload UI). Needed so logo placement
+  // can send imageUrl before any history row exists for this image.
+  const [attachedImageUrl, setAttachedImageUrl] = useState<string | null>(lastImageUrl)
+
+  // Seed pickers from the last stored paint palette (if any) at first render —
+  // seeding via effect would be a sync setState (cascading render).
+  const storedPalette = (lastReady?.validationReport as { _paintPalette?: { A: string; B: string } } | null)
+    ?._paintPalette
+  const [bodyColor, setBodyColor] = useState(storedPalette?.A && storedPalette?.B ? storedPalette.A : '#3b82f6')
+  const [logoColor, setLogoColor] = useState(storedPalette?.A && storedPalette?.B ? storedPalette.B : '#f8fafc')
+  /** Keep labeled mesh between clicks so we don't rebuild from bodies every time. */
+  const paintMeshRef = useRef<BaseMesh | null>(null)
 
   // Hydrate viewer from last ready iteration on mount.
   useEffect(() => {
@@ -159,9 +234,11 @@ export default function ProjectWorkspace({
             setPositions(r.positions)
             setStl(r.stl)
             setBodies(r.bodies)
+            paintMeshRef.current = null
             setValidity(r.validity ?? null)
           } else setError(r.error)
-        } else if (lastReady.strategy === 'generative' && lastReady.meshBlobUrl) {
+        } else if (lastReady.meshBlobUrl) {
+          // Mesh URL present — covers generative, imported, freeform, flexified, …
           const res = await fetch(lastReady.meshBlobUrl)
           if (!res.ok) throw new Error(`Mesh fetch ${res.status}`)
           const bytes = new Uint8Array(await res.arrayBuffer())
@@ -171,6 +248,7 @@ export default function ProjectWorkspace({
             setPositions(r.positions)
             setStl(bytes)
             setBodies(r.bodies)
+            paintMeshRef.current = null
             setValidity(r.validity ?? null)
           } else setError(r.error)
         }
@@ -233,11 +311,15 @@ export default function ProjectWorkspace({
     setIterationId(r.iterationId)
     setError(null)
     setValidity(null)
-    // After the first successful generate with a pending mesh, clear the pending
-    // state — the server has now cached the faces and previews in the iteration.
-    if (pendingMeshUrl) {
-      setPendingMeshUrl(null)
-      setPendingPreviews(null)
+    // Keep mesh URL + previews for follow-up paints ("tenta de novo") so the
+    // client can re-send them; server also caches _previews in validationReport.
+    // Only drop "pending" status after a successful generate once previews exist.
+    if (pendingMeshUrl && pendingPreviews) {
+      // stay available as sticky import context for the chat
+    }
+    if (r.kind === 'generative' && r.paintPalette) {
+      setBodyColor(r.paintPalette.A)
+      setLogoColor(r.paintPalette.B)
     }
     try {
       if (r.kind === 'parametric') {
@@ -275,18 +357,24 @@ export default function ProjectWorkspace({
   const initialMessages: ChatMsg[] = mapHistoryToMessages(initialHistory)
   const importedBaseAvailable = hasImportedBase(initialHistory, pendingMeshUrl)
 
-  const [bodyColor, setBodyColor] = useState('#3b82f6')
-  const [logoColor, setLogoColor] = useState('#f8fafc')
-
   // Click-to-place logo: toggle pick mode, capture the picked point + normal,
   // then POST it as a logoPlacement (no LLM, lands exactly where clicked).
   const [pickMode, setPickMode] = useState(false)
+  /** Click-to-paint multi-colour (extruder B) on imported meshes. */
+  const [paintMode, setPaintMode] = useState(false)
+  /** radius = sphere brush; fill = paint-bucket (closed surface region). */
+  const [paintTool, setPaintTool] = useState<'fill' | 'radius'>('fill')
+  const [paintRadiusMm, setPaintRadiusMm] = useState(14)
+  const [paintExtruder, setPaintExtruder] = useState<'A' | 'B'>('B')
+  const [paintDirty, setPaintDirty] = useState(false)
+  const [paintHint, setPaintHint] = useState<string | null>(null)
   const [pick, setPick] = useState<{
     point: [number, number, number]
     normal: [number, number, number]
   } | null>(null)
-  const [placeTreatment, setPlaceTreatment] = useState<'embossed' | 'engraved'>('embossed')
-  const [placeSizeMm, setPlaceSizeMm] = useState(20)
+  const [placeTreatment, setPlaceTreatment] = useState<'embossed' | 'engraved'>('engraved')
+  // Default grows once the mesh is known (see Logo aqui toggle).
+  const [placeSizeMm, setPlaceSizeMm] = useState(45)
   const [placing, setPlacing] = useState(false)
   // Keyboard alternative to click-to-place: mm offsets from the mesh top-center.
   const [logoX, setLogoX] = useState(0)
@@ -327,17 +415,23 @@ export default function ProjectWorkspace({
       const res = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          projectId: project.id,
-          message: `logo ${placeTreatment === 'engraved' ? 'gravado' : 'em relevo'} (posicionado no viewer)`,
-          logoPlacement: {
-            point: p.point,
-            normal: p.normal,
-            treatment: placeTreatment,
-            sizeMm: placeSizeMm,
-            depthMm: placeTreatment === 'engraved' ? 1.0 : 1.2,
-          },
-        }),
+        body: JSON.stringify(
+          buildLogoPlacementBody({
+            projectId: project.id,
+            message: `logo ${placeTreatment === 'engraved' ? 'gravado' : 'em relevo'} (posicionado no viewer)`,
+            logoPlacement: {
+              point: p.point,
+              normal: p.normal,
+              treatment: placeTreatment,
+              sizeMm: placeSizeMm,
+              // Multi-colour engraving needs ≥ ~2 layers of B filament.
+              depthMm: placeTreatment === 'engraved' ? 1.6 : 1.4,
+            },
+            pendingMeshUrl,
+            pendingPreviews,
+            imageUrl: attachedImageUrl,
+          }),
+        ),
       })
       if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
       const body = (await res.json()) as {
@@ -357,6 +451,114 @@ export default function ProjectWorkspace({
       })
       setPick(null)
       setPickMode(false)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setPlacing(false)
+    }
+  }
+
+  /**
+   * Paint is 100% client-side (Web Worker). The Next server is NEVER called on
+   * click — loading/writing 50MB meshes was killing Node. Use "Exportar 3MF"
+   * when you want a file; optional save stays off the critical path.
+   */
+  async function applyPaintBrush(point: [number, number, number]) {
+    if (placing) return
+    if (!bodies || bodies.length === 0) {
+      setError('Malha ainda não carregou — espere um instante e clique de novo.')
+      return
+    }
+    setPlacing(true)
+    setError(null)
+    setPaintHint(null)
+    try {
+      const { bodiesToMesh, meshToBodies } = await import('@/lib/3mf/paint-bin')
+      const { runPaintInWorker } = await import('@/lib/paint/run-paint-worker')
+
+      if (!paintMeshRef.current || paintMeshRef.current.triangleCount === 0) {
+        paintMeshRef.current = bodiesToMesh(bodies)
+      }
+
+      const painted = await runPaintInWorker({
+        mesh: paintMeshRef.current,
+        point,
+        extruder: paintExtruder,
+        mode: paintTool,
+        radiusMm: paintRadiusMm,
+        featureAngleDeg: 38,
+      })
+      paintMeshRef.current = painted
+      setBodies(meshToBodies(painted))
+      setPositions(painted.positions)
+      setPaintDirty(true)
+      setPaintHint('Pintura local — ainda não salva no servidor (evita crash).')
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setPlacing(false)
+    }
+  }
+
+  /** One-shot export of multi-colour 3MF in the browser — no server. */
+  async function exportPainted3mf() {
+    if (!paintMeshRef.current) {
+      setError('Nada pintado ainda.')
+      return
+    }
+    setPlacing(true)
+    setError(null)
+    try {
+      const { meshToBodies } = await import('@/lib/3mf/paint-bin')
+      const { serialize3mf } = await import('@/lib/3mf/serialize-3mf')
+      const { getPrinter, buildProjectSettings, planStandingOrientation } =
+        await import('@/lib/print-profile')
+      let bodiesOut = meshToBodies(paintMeshRef.current).map((b) => ({
+        positions: b.positions,
+        extruder: b.extruder,
+        label: b.label,
+      }))
+
+      // Decide "print standing" from the FULL soup (all bodies concatenated),
+      // then apply the SAME rigid transform to each body so they stay aligned.
+      const totalFloats = bodiesOut.reduce((n, b) => n + b.positions.length, 0)
+      const allPositions = new Float32Array(totalFloats)
+      let offset = 0
+      for (const b of bodiesOut) {
+        allPositions.set(b.positions, offset)
+        offset += b.positions.length
+      }
+      const plan = planStandingOrientation(allPositions)
+      if (plan.standing) {
+        bodiesOut = bodiesOut.map((b) => ({ ...b, positions: plan.apply(b.positions) }))
+      }
+
+      const colors = printConfig
+        ? { bodyHex: printConfig.bodyHex, accentHex: printConfig.accentHex }
+        : undefined
+      const projectSettings = buildProjectSettings(
+        getPrinter(printConfig?.printerModel),
+        { multicolor: true, standing: plan.standing },
+        colors,
+      )
+      const bytes = serialize3mf(bodiesOut, {
+        ...(colors ? { colors: { aHex: colors.bodyHex, bHex: colors.accentHex } } : {}),
+        projectSettings,
+      })
+      const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' })
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = `${project.id.slice(0, 8)}-painted.3mf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(href), 1000)
+      setPaintHint(
+        projectSettings
+          ? '3MF exportado — abre no Bambu Studio já com perfil de impressão.'
+          : '3MF exportado no seu computador (sem passar pelo server).',
+      )
     } catch (e) {
       setError(String(e))
     } finally {
@@ -384,6 +586,7 @@ export default function ProjectWorkspace({
           initialAttachedImageUrl={lastImageUrl}
           onResult={onResult}
           onMeshUploaded={onMeshUploaded}
+          onAttachedImageChange={setAttachedImageUrl}
           pendingMeshUrl={pendingMeshUrl}
           pendingPreviews={pendingPreviews}
         />
@@ -396,12 +599,18 @@ export default function ProjectWorkspace({
           fitKey={iterationId ?? undefined}
           bodyColor={bodyColor}
           logoColor={logoColor}
-          pickMode={pickMode}
-          onPick={(point, normal) => setPick({ point, normal })}
+          pickMode={pickMode || paintMode}
+          onPick={(point, normal) => {
+            if (paintMode) {
+              void applyPaintBrush(point)
+              return
+            }
+            setPick({ point, normal })
+          }}
           pickMarker={pick?.point ?? null}
           loading={!!iterationId && positions === null && !error}
         />
-        <div className="absolute top-4 left-4 z-10 flex gap-2">
+        <div className="absolute top-4 left-4 z-10 flex flex-wrap gap-2 max-w-[min(100%,28rem)]">
           <DownloadStlButton iterationId={iterationId} stl={stl} />
           <FlexifyButton
             projectId={project.id}
@@ -410,19 +619,138 @@ export default function ProjectWorkspace({
             onFlexified={onResult}
           />
           {positions && importedBaseAvailable && (
-            <button
-              onClick={() => { setPickMode((v) => !v); setPick(null) }}
-              className={`px-3 py-2 rounded-lg text-sm font-medium border shadow-soft min-h-11 transition ${
-                pickMode
-                  ? 'bg-orange-500 text-white border-orange-600'
-                  : 'bg-slate-900/80 text-slate-100 border-slate-700 backdrop-blur hover:bg-slate-800'
-              }`}
-              title="Clique num ponto do modelo para posicionar o logo ali"
-            >
-              📍 {pickMode ? 'Cancelar' : 'Logo aqui'}
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setPickMode((v) => {
+                    const next = !v
+                    if (next) {
+                      // Auto-size to ~65% of the face so monograms aren't tiny stamps.
+                      setPlaceSizeMm(suggestedLogoSizeMm(positions))
+                    }
+                    return next
+                  })
+                  setPaintMode(false)
+                  setPick(null)
+                }}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border shadow-soft min-h-11 transition ${
+                  pickMode
+                    ? 'bg-orange-500 text-white border-orange-600'
+                    : 'bg-slate-900/80 text-slate-100 border-slate-700 backdrop-blur hover:bg-slate-800'
+                }`}
+                title="Clique num ponto do modelo para posicionar o logo ali"
+              >
+                📍 {pickMode ? 'Cancelar' : 'Logo aqui'}
+              </button>
+              <button
+                onClick={() => {
+                  setPaintMode((v) => !v)
+                  setPickMode(false)
+                  setPick(null)
+                }}
+                disabled={placing}
+                className={`px-3 py-2 rounded-lg text-sm font-medium border shadow-soft min-h-11 transition ${
+                  paintMode
+                    ? 'bg-emerald-500 text-white border-emerald-600'
+                    : 'bg-slate-900/80 text-slate-100 border-slate-700 backdrop-blur hover:bg-slate-800'
+                }`}
+                title="Clique no modelo para pintar (balde de região ou pincel)"
+              >
+                🎨 {paintMode ? 'Parar de pintar' : 'Pintar cores'}
+              </button>
+            </>
           )}
         </div>
+        {paintMode && positions && (
+          <div className="absolute top-[4.5rem] left-4 z-20 bg-emerald-950/90 backdrop-blur border border-emerald-700 rounded-xl p-3 text-xs shadow-card text-emerald-50 max-w-xs space-y-2">
+            <p className="font-medium">Pintura manual (só no browser)</p>
+            <p className="text-emerald-100/80">
+              {paintTool === 'fill'
+                ? 'Balde: preenche a região até as arestas do modelo. Roda no seu PC — o server não processa.'
+                : 'Pincel: círculo ao redor do clique. Roda no seu PC — o server não processa.'}
+            </p>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setPaintTool('fill')}
+                className={`flex-1 rounded-lg px-2 py-1.5 font-medium transition ${
+                  paintTool === 'fill'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-emerald-900/60 text-emerald-100 hover:bg-emerald-800'
+                }`}
+              >
+                🪣 Balde
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaintTool('radius')}
+                className={`flex-1 rounded-lg px-2 py-1.5 font-medium transition ${
+                  paintTool === 'radius'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-emerald-900/60 text-emerald-100 hover:bg-emerald-800'
+                }`}
+              >
+                🖌️ Pincel
+              </button>
+            </div>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setPaintExtruder('A')}
+                className={`flex-1 rounded-lg px-2 py-1.5 font-medium transition ${
+                  paintExtruder === 'A'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-emerald-900/60 text-emerald-100 hover:bg-emerald-800'
+                }`}
+                title="Cor 1 (corpo)"
+              >
+                Cor 1 (A)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaintExtruder('B')}
+                className={`flex-1 rounded-lg px-2 py-1.5 font-medium transition ${
+                  paintExtruder === 'B'
+                    ? 'bg-amber-500 text-slate-900'
+                    : 'bg-emerald-900/60 text-emerald-100 hover:bg-emerald-800'
+                }`}
+                title="Cor 2 (detalhe)"
+              >
+                Cor 2 (B)
+              </button>
+            </div>
+            {paintTool === 'radius' && (
+              <label className="flex items-center gap-2">
+                Raio
+                <input
+                  type="range"
+                  min={4}
+                  max={40}
+                  value={paintRadiusMm}
+                  onChange={(e) => setPaintRadiusMm(Number(e.target.value))}
+                  className="flex-1"
+                />
+                <span className="tabular-nums w-10">{paintRadiusMm}mm</span>
+              </label>
+            )}
+            {paintDirty && (
+              <button
+                type="button"
+                onClick={() => void exportPainted3mf()}
+                disabled={placing}
+                className="w-full rounded-lg bg-white px-2 py-2 font-semibold text-emerald-950 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                ⬇ Exportar 3MF multi-cor
+              </button>
+            )}
+            {placing && (
+              <p className="text-emerald-200/90 animate-pulse">Pintando no worker…</p>
+            )}
+            {paintHint && !placing && (
+              <p className="text-emerald-200/90">{paintHint}</p>
+            )}
+          </div>
+        )}
 
         {/* Keyboard alternative to click-to-place: X/Y mm offsets from the mesh
             top-center, feeding the SAME placement handler as a canvas click. */}
@@ -483,11 +811,13 @@ export default function ProjectWorkspace({
                   Tamanho
                   <input
                     type="number"
-                    min={5}
-                    max={60}
+                    min={10}
+                    max={150}
+                    step={1}
                     value={placeSizeMm}
-                    onChange={(e) => setPlaceSizeMm(Math.max(5, Math.min(60, Number(e.target.value) || 20)))}
-                    className="w-14 border border-slate-600 bg-slate-800 text-slate-100 rounded px-1 py-0.5"
+                    onChange={(e) => setPlaceSizeMm(Math.max(10, Math.min(150, Number(e.target.value) || 40)))}
+                    className="w-16 border border-slate-600 bg-slate-800 text-slate-100 rounded px-1 py-0.5"
+                    aria-label="Tamanho do logo em milímetros (maior dimensão)"
                   />
                   mm
                 </label>
@@ -530,8 +860,13 @@ export default function ProjectWorkspace({
               aria-label="Cor do logo (extrusora B)"
               className="w-11 h-11 rounded border border-slate-600 cursor-pointer p-0"
             />
-            <label htmlFor="logo-color-picker" className="cursor-pointer font-medium">Cor do Logo (B)</label>
+            <label htmlFor="logo-color-picker" className="cursor-pointer font-medium">
+              Cor 2 / Logo (B)
+            </label>
           </div>
+          <p className="text-[10px] text-slate-500 leading-snug max-w-[12rem]">
+            Melhor: anexe o render de cores + &quot;pintar com a imagem&quot;. Ou use 🎨 Pintar cor 2 no modelo.
+          </p>
         </div>
         )}
 

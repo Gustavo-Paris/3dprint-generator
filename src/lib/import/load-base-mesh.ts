@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { resolveInsidePublic } from '@/lib/http/resolve-inside-public'
 import { parse3mf } from '@/lib/3mf/parse-3mf'
+import { isPaintBin, decodePaintBin } from '@/lib/3mf/paint-bin'
 import type { BaseMesh } from './types'
 
 const MAX_BYTES = 50 * 1024 * 1024
@@ -25,6 +26,9 @@ export async function loadBaseMeshFromUrl(url: string): Promise<BaseMesh> {
 }
 
 export async function loadBaseMeshFromBytes(bytes: Uint8Array): Promise<BaseMesh> {
+  // Interactive paint format (no 3MF XML)
+  if (isPaintBin(bytes)) return decodePaintBin(bytes)
+
   const bodies = parse3mf(bytes)
   if (bodies.length === 0) throw new Error('3MF contains no geometry')
 

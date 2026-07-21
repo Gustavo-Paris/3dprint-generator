@@ -22,6 +22,11 @@ export const appSettings = pgTable('app_settings', {
   aiApiKeyEnc: text('ai_api_key_enc'),
   meshyApiKeyEnc: text('meshy_api_key_enc'),
   slicerUrl: text('slicer_url'),
+  // Printer profile embedded in exported 3MFs (null = plain 3MF, no profile).
+  printerModel: text('printer_model'),
+  // Filament colours for multi-colour export, '#RRGGBB' (null = app defaults).
+  filamentColorBody: text('filament_color_body'),
+  filamentColorAccent: text('filament_color_accent'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 })
 

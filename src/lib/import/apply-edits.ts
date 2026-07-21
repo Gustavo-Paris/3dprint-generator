@@ -5,6 +5,8 @@ import { OPS, type OpName } from './ops'
 export interface ApplyEditsResult {
   mesh: BaseMesh
   warnings: EditWarning[]
+  /** Hex colours sampled from paint_from_image (for viewer pickers). */
+  paintPalette?: { A: string; B: string }
 }
 
 /** Ops above this triangle count blow JSCAD's heap when they trigger CSG.
@@ -17,7 +19,8 @@ export const BOOLEAN_TRIANGLE_LIMIT = 50_000
 /** Ops that perform CSG through JSCAD's BSP path and therefore can't run on
  *  large meshes. `scale` is excluded (vertex-only). `add_logo` is excluded too:
  *  it self-routes — embossed appends a separate body (no boolean), engraved /
- *  through_cut use the Manifold backend (handles millions of triangles). */
+ *  through_cut use the Manifold backend (handles millions of triangles).
+ *  paint_* ops only relabel extruders (no CSG). */
 const CSG_OPS = new Set<string>(['hole', 'emboss_text', 'jscad_raw'])
 
 export async function applyEdits(
@@ -28,7 +31,11 @@ export async function applyEdits(
 ): Promise<ApplyEditsResult> {
   let mesh = baseMesh
   const warnings: EditWarning[] = []
-  const ctx = { faces, logoImageBuffer }
+  const ctx: {
+    faces: SemanticFace[]
+    logoImageBuffer?: Buffer | null
+    paintPalette?: { A: string; B: string }
+  } = { faces, logoImageBuffer }
 
   for (let i = 0; i < edits.length; i++) {
     const edit = edits[i]
@@ -56,5 +63,5 @@ export async function applyEdits(
     }
   }
 
-  return { mesh, warnings }
+  return { mesh, warnings, paintPalette: ctx.paintPalette }
 }

@@ -1,5 +1,5 @@
 'use client'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { resultLabel } from '@/lib/chat/result-label'
 import { BrandMark } from '@/components/Brand'
 
@@ -31,6 +31,25 @@ function designSummary(design: unknown): string {
     if (d.hangingHole) parts.push('com furo')
   } else if (kind === 'box') {
     parts.push(`caixa ${d.widthMm}×${d.depthMm}×${d.heightMm}mm`)
+  } else if (kind === 'imported') {
+    parts.push('importado')
+    const edits = Array.isArray(d.edits) ? d.edits as Array<Record<string, unknown>> : []
+    const fromImg = edits.filter((e) => e.op === 'paint_from_image')
+    const brushes = edits.filter((e) => e.op === 'paint_brush')
+    const paints = edits.filter((e) => e.op === 'paint_region')
+    if (fromImg.length > 0) {
+      parts.push('multi-cor da imagem')
+    } else if (brushes.length > 0) {
+      const last = brushes[brushes.length - 1]
+      const tool = last.mode === 'fill' ? 'balde' : 'pincel'
+      parts.push(`${tool}×${brushes.length}`)
+    } else if (paints.length > 0) {
+      const p = paints[paints.length - 1]
+      const region = p.region ? String(p.region) : p.faceIds ? 'faces' : p.zFraction ? 'faixa-z' : 'região'
+      parts.push(`multi-cor ${region}→${p.extruder ?? 'B'}`)
+    } else if (edits.length > 0) {
+      parts.push(`${edits.length} edit(s)`)
+    }
   } else {
     parts.push(kind)
   }
@@ -43,12 +62,12 @@ function designSummary(design: unknown): string {
   return parts.join(' · ')
 }
 
-/** The parametric pipeline always persists strategy:'generative' even for
- *  JSCAD-built primitives, so the badge must come from the design kind, not the
- *  stored strategy: only a 'freeform' design is a real Meshy mesh. */
-export function badgeFor(design: unknown): 'meshy' | 'jscad' {
+/** Badge from design kind — freeform (Meshy), imported mesh, or parametric JSCAD. */
+export function badgeFor(design: unknown): 'meshy' | 'imported' | 'jscad' {
   const kind = (design as { kind?: string } | undefined)?.kind
-  return kind === 'freeform' ? 'meshy' : 'jscad'
+  if (kind === 'freeform') return 'meshy'
+  if (kind === 'imported') return 'imported'
+  return 'jscad'
 }
 
 type Msg = {
@@ -67,7 +86,14 @@ type Msg = {
 
 export type ChatResult =
   | { kind: 'parametric'; iterationId: string; code: string }
-  | { kind: 'generative'; iterationId: string; meshUrl: string | null; meshBase64: string | null }
+  | {
+      kind: 'generative'
+      iterationId: string
+      meshUrl: string | null
+      meshBase64: string | null
+      /** Seed colour pickers after paint_from_image. */
+      paintPalette?: { A: string; B: string }
+    }
 
 export type PreviewBundle = { top: string; front: string; right: string; iso: string }
 
@@ -77,6 +103,7 @@ export default function Chat({
   initialAttachedImageUrl,
   onResult,
   onMeshUploaded,
+  onAttachedImageChange,
   pendingMeshUrl,
   pendingPreviews,
 }: {
@@ -90,6 +117,9 @@ export default function Chat({
   /** Called when the user uploads a .3mf file. ProjectWorkspace will load it into
    * the viewer and capture previews before the next send. */
   onMeshUploaded?: (url: string) => void
+  /** Notifies parent when the attached reference image URL changes (upload/clear).
+   *  Used by click-to-place logo so /api/generate gets imageUrl without a chat send. */
+  onAttachedImageChange?: (url: string | null) => void
   /** Active imported mesh URL (set by ProjectWorkspace after a .3mf upload). */
   pendingMeshUrl?: string | null
   /** 4-angle previews captured by the viewer (set by ProjectWorkspace). */
@@ -112,6 +142,10 @@ export default function Chat({
       : null,
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    onAttachedImageChange?.(attachedImage?.url ?? null)
+  }, [attachedImage, onAttachedImageChange])
 
   async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -144,11 +178,16 @@ export default function Chat({
   async function send(opts?: { designOverride?: unknown; messageOverride?: string }) {
     if (!opts?.designOverride && (!draft.trim() && !attachedImage) || busy) return
     const userText = opts?.messageOverride ?? (draft.trim() || (attachedImage ? '(image only)' : ''))
-    const imgUrl = attachedImage && !attachedImage.carried ? attachedImage.url : undefined
+    // Always forward the attached image URL (including carried-from-history) so
+    // paint_from_image can load the reference bytes on multi-colour turns.
+    const imgUrl = attachedImage?.url
     const displayImage = attachedImage?.url
     setMessages((m) => [...m, { role: 'user', text: userText, imageUrl: displayImage }])
     if (!opts?.messageOverride) setDraft('')
-    setAttachedImage(null)
+    // Keep carried reference image available for follow-up multi-colour paints.
+    if (attachedImage && !attachedImage.carried) {
+      setAttachedImage({ url: attachedImage.url, file: null, carried: true })
+    }
     setBusy(true)
     try {
       const res = await fetch('/api/generate', {
@@ -173,11 +212,12 @@ export default function Chat({
         design_adjustments?: Array<{ field: string; from: number; to: number }>
         warnings?: Array<{ opIndex: number; op: string; reason: string }>
         meta?: {
-          kind?: 'hollow_cylinder' | 'flat_plate' | 'disc' | 'box'
+          kind?: string
           bbox_mm?: { x: number; y: number; z: number }
+          paint_palette?: { A: string; B: string }
         }
       }
-      const label = resultLabel(body.meta)
+      const label = resultLabel(body.meta as Parameters<typeof resultLabel>[0])
       setMessages((m) => [
         ...m,
         {
@@ -195,6 +235,7 @@ export default function Chat({
         iterationId: body.iteration_id,
         meshUrl: body.mesh_url,
         meshBase64: body.mesh_base64,
+        paintPalette: body.meta?.paint_palette,
       })
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', text: `Erro: ${(e as Error).message}` }])
@@ -252,7 +293,11 @@ export default function Chat({
             </div>
             {m.role === 'assistant' && m.strategy && (
               <span className="ml-2 px-1.5 py-0.5 text-[10px] rounded bg-slate-700 text-slate-300 uppercase align-top">
-                {badgeFor(m.design) === 'meshy' ? 'imagem' : 'paramétrico'}
+                {badgeFor(m.design) === 'meshy'
+                  ? 'imagem'
+                  : badgeFor(m.design) === 'imported'
+                    ? 'importado'
+                    : 'paramétrico'}
               </span>
             )}
             {m.role === 'assistant' && m.designAdjustments && m.designAdjustments.length > 0 && (

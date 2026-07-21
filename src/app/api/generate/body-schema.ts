@@ -35,8 +35,16 @@ export const Body = z.object({
   logoPlacement: z.object({
     point: z.tuple([z.number(), z.number(), z.number()]),
     normal: z.tuple([z.number(), z.number(), z.number()]),
-    treatment: z.enum(['embossed', 'engraved', 'through_cut']).default('embossed'),
-    sizeMm: z.number().positive().default(20),
-    depthMm: z.number().positive().default(1),
+    treatment: z.enum(['embossed', 'engraved', 'through_cut']).default('engraved'),
+    sizeMm: z.number().positive().max(200).default(40),
+    depthMm: z.number().positive().max(20).default(1.6),
+  }).optional(),
+  /** Click-to-paint multi-colour: radius brush or flood-fill closed region. */
+  paintPlacement: z.object({
+    point: z.tuple([z.number(), z.number(), z.number()]),
+    extruder: z.enum(['A', 'B']).default('B'),
+    mode: z.enum(['radius', 'fill']).default('radius'),
+    radiusMm: z.number().positive().default(14),
+    featureAngleDeg: z.number().positive().max(90).default(38),
   }).optional(),
 })

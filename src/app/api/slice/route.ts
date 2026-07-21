@@ -66,15 +66,17 @@ export async function POST(req: Request) {
   // Flatten multi-body meshes to a single-material STL for slicing. A multi-body
   // emboss arrives as a 3MF (zip): OrcaSlicer can't load it under an .stl name,
   // and its per-body extruder mapping fights a single-filament profile. Slicing
-  // is single-material anyway (multi-colour is the separate Download-3MF path),
-  // so flatten all bodies into one STL the slicer loads cleanly. (Needs the
-  // slicer's raised body limit — a 700k-tri STL is tens of MB.)
+  // is single-material anyway (multi-colour is the separate Download-3MF path).
+  // IMPORTANT: union A∪B via Manifold — naive triangle concat leaves the logo
+  // as a floating shell → "floating cantilever" + white spike markers in Bambu.
   if (meshBytes[0] === 0x50 && meshBytes[1] === 0x4b) {
     try {
       const { loadBaseMeshFromBytes } = await import('@/lib/import/load-base-mesh')
       const { serializeBinarySTL } = await import('@/lib/stl/serialize')
+      const { flattenMeshForSlice } = await import('@/lib/slice/flatten-for-slice')
       const mesh = await loadBaseMeshFromBytes(new Uint8Array(meshBytes))
-      meshBytes = Buffer.from(serializeBinarySTL(Array.from(mesh.positions)))
+      const solid = await flattenMeshForSlice(mesh)
+      meshBytes = Buffer.from(serializeBinarySTL(Array.from(solid)))
     } catch (e) {
       log.error('3mf->stl convert failed', e, { iterationId })
       return apiError(422, 'mesh_convert_failed', 'Não foi possível preparar a malha para o fatiamento.')
@@ -83,7 +85,9 @@ export async function POST(req: Request) {
 
   let result
   try {
-    result = await sliceStl(meshBytes)
+    // App pieces are small/detailed pendants — estimate with the fine (0.16mm)
+    // profile so the numbers match the profile the downloadable 3MF embeds.
+    result = await sliceStl(meshBytes, { quality: 'fine' })
   } catch (e) {
     log.error('slice failed', e, { iterationId })
     if (e instanceof SlicerError) {

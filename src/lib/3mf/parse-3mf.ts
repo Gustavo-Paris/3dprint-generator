@@ -84,48 +84,63 @@ function parseModelXml(
       vertices.push([parseFloat(vMatch[1]), parseFloat(vMatch[2]), parseFloat(vMatch[3])])
     }
 
-    // Extruder: prefer model_settings.config mapping; fall back to legacy p1.
-    let extruder: 'A' | 'B' = extruderByObjectId.get(objId) ?? 'A'
-    const hasConfigExtruder = extruderByObjectId.has(objId)
+    // Prefer model_settings when it assigns the whole object; otherwise split
+    // by per-triangle p1 so a single multi-colour mesh reloads as A+B bodies.
+    const configExtruder = extruderByObjectId.get(objId)
 
-    // Two-pass over triangles: count valid ones first to allocate exactly.
-    let triCount = 0
-    triangleRegex.lastIndex = 0
-    let cMatch: RegExpExecArray | null
-    while ((cMatch = triangleRegex.exec(bodyContent)) !== null) {
-      const a = parseInt(cMatch[1], 10)
-      const b = parseInt(cMatch[2], 10)
-      const c = parseInt(cMatch[3], 10)
-      if (vertices[a] && vertices[b] && vertices[c]) triCount++
-    }
-
-    const positions = new Float32Array(triCount * 9)
-    let w = 0
+    // Bucket tris by colour index (p1). Default 0 = extruder A.
+    const buckets: number[][] = [[], []]
+    let sawExplicitP1 = false
     triangleRegex.lastIndex = 0
     let tMatch: RegExpExecArray | null
     while ((tMatch = triangleRegex.exec(bodyContent)) !== null) {
       const v1 = parseInt(tMatch[1], 10)
       const v2 = parseInt(tMatch[2], 10)
       const v3 = parseInt(tMatch[3], 10)
-      const p1Attr = tMatch[4]  // may be undefined when p1 isn't present
-      if (!hasConfigExtruder && p1Attr === '1') extruder = 'B'
-
+      const p1Attr = tMatch[4]
+      if (p1Attr !== undefined) sawExplicitP1 = true
+      const colorIdx = p1Attr === '1' ? 1 : 0
       const pt1 = vertices[v1]
       const pt2 = vertices[v2]
       const pt3 = vertices[v3]
-      if (pt1 && pt2 && pt3) {
-        positions[w++] = pt1[0]; positions[w++] = pt1[1]; positions[w++] = pt1[2]
-        positions[w++] = pt2[0]; positions[w++] = pt2[1]; positions[w++] = pt2[2]
-        positions[w++] = pt3[0]; positions[w++] = pt3[1]; positions[w++] = pt3[2]
-      }
+      if (!pt1 || !pt2 || !pt3) continue
+      const bucket = buckets[colorIdx]
+      bucket.push(pt1[0], pt1[1], pt1[2], pt2[0], pt2[1], pt2[2], pt3[0], pt3[1], pt3[2])
     }
 
-    if (positions.length > 0) {
+    const hasSplit = buckets[0].length > 0 && buckets[1].length > 0
+    if (hasSplit) {
+      // Single mesh with multi-colour triangles (current serialize3mf path) →
+      // two bodies. Per-triangle p1 wins over model_settings object extruder.
       bodies.push({
-        positions,
-        extruder,
-        label: `Body ${objId}`,
+        positions: new Float32Array(buckets[0]),
+        extruder: 'A',
+        label: `Body ${objId} A`,
       })
+      bodies.push({
+        positions: new Float32Array(buckets[1]),
+        extruder: 'B',
+        label: `Body ${objId} B`,
+      })
+    } else {
+      // One extruder for the whole object (legacy assembly component or config).
+      const all = buckets[0].length || buckets[1].length
+        ? buckets[0].concat(buckets[1])
+        : []
+      if (all.length > 0) {
+        // Explicit per-triangle p1 wins over model_settings even when a single
+        // bucket is populated — serialize3mf always writes part extruder="1",
+        // which would misread an all-B (fully accent-painted) mesh as A.
+        let extruder: 'A' | 'B' = configExtruder ?? 'A'
+        if ((sawExplicitP1 || !configExtruder) && buckets[1].length > 0 && buckets[0].length === 0) {
+          extruder = 'B'
+        }
+        bodies.push({
+          positions: new Float32Array(all),
+          extruder,
+          label: `Body ${objId}`,
+        })
+      }
     }
   }
 

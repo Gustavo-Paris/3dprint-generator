@@ -11,13 +11,15 @@ type AddLogoParams = Extract<Op, { op: 'add_logo' }>
 /**
  * Apply a logo to a face of an (arbitrarily heavy) imported mesh.
  *
- * Two scale-free paths, picked by treatment so neither hits JSCAD's BSP limit:
- *   - **embossed** (raised): the extruded logo is appended as a SEPARATE
- *     extruder-B body sitting on the surface (sunk slightly so the slicer fuses
- *     it). No boolean → works on 700k+ triangle meshes.
- *   - **engraved / through_cut** (recessed/pierced): a volumetric subtract via
- *     Manifold (handles millions of triangles where JSCAD OOMs). Requires the
- *     base to be a watertight solid — throws otherwise (surfaced as a warning).
+ * Placement pipeline:
+ *   1. Extrude the logo silhouette into a planar solid.
+ *   2. Orient + translate onto the click/face anchor.
+ *   3. **Drape** vertices onto the host surface (curved heads, cylinders, …)
+ *      so the logo rides the mesh instead of floating as a flat coin.
+ *   4. Treatment-specific finish via Manifold:
+ *      - **embossed**: logo − mesh → proud extruder-B body
+ *      - **engraved**: mesh − logo + (logo ∩ mesh) inlay B
+ *      - **through_cut**: mesh − logo only
  */
 export async function applyAddLogo(
   mesh: BaseMesh,
@@ -59,10 +61,19 @@ export async function applyAddLogo(
 
   const isThrough = op.treatment === 'through_cut'
 
+  // Cap depth to local plate thickness. Keychains are often ~1.5–2 mm — a
+  // 1.4 mm emboss with deep embed used to nearly pierce (or poke through) and
+  // leave paper-thin residual shells the slicer flags as garbage.
+  const plateThickness = Math.min(...mesh.bbox.size)
+  const maxSafeDepth = isThrough
+    ? Math.max(...mesh.bbox.size) * 1.2
+    : Math.max(0.4, plateThickness * 0.45)
+  const depthMm = isThrough ? maxSafeDepth : Math.min(op.depthMm, maxSafeDepth)
+
   // through_cut must pierce the whole local thickness; size the cutter to the
   // mesh's largest dimension so the silhouette punches clear through. Engrave /
-  // emboss use the requested depth.
-  const cutterDepth = isThrough ? Math.max(...mesh.bbox.size) * 1.2 : op.depthMm
+  // emboss use the (capped) depth.
+  const cutterDepth = depthMm
 
   // Extrude the logo using the existing pipeline.
   // extrudeLogo returns a geom3 in "standing" orientation:
@@ -72,9 +83,11 @@ export async function applyAddLogo(
     imageBuffer: imgBuffer,
     targetMaxDim: op.sizeMm,
     depthMm: cutterDepth,
-    // Provide sensible defaults for the rest.
-    binaryThreshold: 128,
-    turdSize: 4,
+    // Printable monogram: drop speckles, simplify curves a bit, fatten stems
+    // so 0.4 mm nozzles don't leave sub-layer white-dot garbage in Bambu.
+    turdSize: 6,
+    optTolerance: 0.25,
+    fattenPx: 2,
     addBridges: false,
     texture: 'none',
   })
@@ -114,14 +127,14 @@ export async function applyAddLogo(
   //     body extends inward by depthMm.
   let normalShift: number
   if (op.treatment === 'embossed') {
-    // Sink a thin overlap below the surface so the separate body fuses in the
-    // slicer; keep the bulk of the logo proud of the face.
-    const embed = Math.min(0.2, op.depthMm * 0.25)
-    normalShift = op.depthMm / 2 - embed
+    // Embed ~35% of depth so multi-body logo overlaps the host solidly without
+    // piercing thin plates. Slice path unions A∪B for single-material STL.
+    const embed = Math.min(0.4, Math.max(0.2, depthMm * 0.35))
+    normalShift = depthMm / 2 - embed
   } else if (isThrough) {
     normalShift = 0
   } else {
-    normalShift = -op.depthMm / 2 + 0.1
+    normalShift = -depthMm / 2 + 0.05
   }
 
   const tx = wx + placeNormal[0] * normalShift
@@ -129,18 +142,36 @@ export async function applyAddLogo(
   const tz = wz + placeNormal[2] * normalShift
 
   const placed = transforms.translate([tx, ty, tz], flat as never) as Geom3
+  const { booleanSoup } = await import('../manifold-csg')
+  let toolBody = await geom3ToBaseMesh(placed, 'B')
 
-  if (op.treatment === 'embossed') {
-    // Additive: the logo becomes its own extruder-B body. generate.ts splits
-    // distinct extruders into separate print bodies; the viewer colours B.
-    const logoBody = await geom3ToBaseMesh(placed, 'B')
-    return appendBody(mesh, logoBody)
+  // Drape onto curved hosts only (forehead, cylinders…). Flat keychains /
+  // plaques skip this — raycast jitter on dense planar meshes created
+  // micro-spikes the slicer shows as white garbage.
+  if (!isThrough) {
+    const { drapeLogoPositions, filterTrianglesNear, isLocallyPlanar } = await import('./drape-logo')
+    const radius = op.sizeMm * 0.75 + 4
+    const localHost = filterTrianglesNear(mesh.positions, placeCentroid, radius)
+    if (localHost.length >= 9 && !isLocallyPlanar(localHost, placeCentroid, placeNormal)) {
+      const draped = drapeLogoPositions(
+        toolBody.positions,
+        localHost,
+        placeCentroid,
+        placeNormal,
+        normalShift,
+      )
+      toolBody = recomputeMeshDerived({
+        positions: draped,
+        extruders: toolBody.extruders,
+        triangleCount: draped.length / 9,
+      })
+    }
   }
 
-  // Engrave / through-cut: volumetric subtract on the FULL solid via Manifold
-  // (handles millions of triangles where JSCAD OOMs).
-  const { booleanSoup } = await import('../manifold-csg')
-  const toolBody = await geom3ToBaseMesh(placed, 'B')
+  // Always carve the logo volume out of the host first. Without this, embossed
+  // multi-colour stacks B on top of A's existing emboss → double walls that
+  // Bambu paints as white spikes (even when each body is watertight alone).
+  // Engrave / through-cut need the same carve for the pocket.
   const carved = await booleanSoup(mesh.positions, toolBody.positions, 'subtract')
   const carvedCount = carved.length / 9
   const carvedMesh = recomputeMeshDerived({
@@ -149,14 +180,24 @@ export async function applyAddLogo(
     triangleCount: carvedCount,
   })
 
-  // through_cut: a clean silhouette cut clear through — no fill.
+  if (op.treatment === 'embossed') {
+    // Full logo solid (proud + embed) sits in the pocket we just carved — no
+    // overlapping shells. Export is a single mesh object with per-tri colours.
+    return appendBody(carvedMesh, toolBody)
+  }
+
+  // through_cut: silhouette cut clear through — no fill.
   if (isThrough) return carvedMesh
 
-  // engraved: fill the recess with a colour-B inlay. A same-colour groove is
-  // invisible in the viewer (and barely readable on a single-colour print); the
-  // inlay makes the debossed logo a distinct colour, sitting flush in the
-  // pocket the subtract just carved (the cutter exactly fills its own cavity).
-  return appendBody(carvedMesh, toolBody)
+  // engraved: fill the pocket with colour-B inlay only (logo ∩ original host).
+  const inlaySoup = await booleanSoup(toolBody.positions, mesh.positions, 'intersect')
+  const inlayCount = inlaySoup.length / 9
+  const inlay = recomputeMeshDerived({
+    positions: inlaySoup,
+    extruders: new Array(inlayCount).fill('B') as Array<'A' | 'B'>,
+    triangleCount: inlayCount,
+  })
+  return appendBody(carvedMesh, inlay)
 }
 
 /** Concatenate a second body's triangles onto the base, preserving per-triangle

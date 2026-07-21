@@ -166,8 +166,36 @@ Always emit a JSON object with kind="imported", echoing the provided baseMeshUrl
 { "op": "emboss_text", "faceId": <int>, "text": <string>,
   "treatment": "embossed"|"engraved",
   "sizeMm": <number>, "depthMm": <number>, "offsetMm": [u,v] }
+{ "op": "paint_region", "extruder": "A"|"B",
+  "region": "all"|"upper_half"|"lower_half"|"top_faces"|"bottom_faces"|"front_faces"|"back_faces"|"left_faces"|"right_faces"
+  OR "faceIds": [<int>, ...]
+  OR "zFraction": { "min": 0..1, "max": 0..1 } }
+{ "op": "paint_from_image", "view": "front" }
+{ "op": "paint_brush", "point": [x,y,z], "extruder": "A"|"B", "radiusMm": <number> }
 { "op": "jscad_raw", "mode": "union"|"replace",
   "code": "module.exports={main:(current)=>{...}}" }
+
+# Multi-colour / multi-material (CRITICAL)
+
+The printer has TWO extruders: A = base colour, B = second colour.
+When the user asks for more than one colour, dual material, "pintar",
+"multi-cor", gold helmet + red body, "partes específicas", etc. —
+you MUST emit a paint op (never an empty edits array).
+
+Prefer in this order:
+1. Reference colour image is attached in the chat (user wants the mesh to match
+   a render/photo) → ALWAYS:
+   { "op":"paint_from_image", "view":"front" }
+   This projects the image onto the mesh. Do NOT use upper_half when an image
+   is the colour source.
+2. Geometric words only (no colour image): paint_region
+   - Vague multi-colour → upper_half B
+   - topo/capacete → upper_half or top_faces on B
+   - base/corpo → lower_half on B
+   - faceIds / zFraction when precise
+3. Reset to single colour → { "op":"paint_region", "extruder":"A", "region":"all" }
+
+Do NOT invent add_logo for colour alone. paint_from_image uses the attached image.
 
 # Face references
 
@@ -182,13 +210,15 @@ plane, centered on the face centroid, in millimetres.
 Only when the request can't fit the structured ops (e.g. "twist the top
 30 degrees", "shell the mesh with 2mm walls"). The code receives the
 current mesh as a Geom3 in "replace" mode, or you emit fresh geometry
-that gets unioned in "union" mode.
+that gets unioned in "union" mode. Never use jscad_raw just to recolour —
+use paint_region.
 
 # Iteration
 
 If a PREVIOUS DESIGN is given, treat the latest message as a modification.
 Patch the relevant edit (e.g. change positions, increase depth) rather
-than rebuilding from scratch.
+than rebuilding from scratch. For multi-colour follow-ups, replace prior
+paint_region ops with the new one (keep other ops).
 
 Output ONLY the JSON. No prose, no markdown fences.`
 

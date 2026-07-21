@@ -12,7 +12,12 @@
  * No detector ladder, no per-composer routing. One design, one generator.
  */
 import { auth } from '@/auth'
-import { resolveConfig } from '@/lib/settings/store'
+import {
+  resolveConfig,
+  DEFAULT_FILAMENT_COLOR_BODY,
+  DEFAULT_FILAMENT_COLOR_ACCENT,
+} from '@/lib/settings/store'
+import { getPrinter, buildProjectSettings } from '@/lib/print-profile'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { designKindToStrategy } from '@/db/strategy'
@@ -54,7 +59,10 @@ export async function POST(req: Request) {
 
   const parsed = Body.safeParse(await req.json())
   if (!parsed.success) return apiError(400, 'invalid_body', 'Requisição inválida.')
-  const { projectId, message, imageUrl, meshUrl: freshMeshUrl, previewDataUrls: freshPreviews, designOverride, logoPlacement } = parsed.data
+  const {
+    projectId, message, imageUrl, meshUrl: freshMeshUrl, previewDataUrls: freshPreviews,
+    designOverride, logoPlacement, paintPlacement,
+  } = parsed.data
 
   const [project] = await db
     .select()
@@ -155,22 +163,34 @@ export async function POST(req: Request) {
   }
 
   // ── Base-mesh resolution (imported-mesh flow) ──────────────────────────────
-  // Fresh upload wins; else look back in history for a cached imported design.
+  // Fresh upload wins for the mesh URL; faces/previews always prefer history cache
+  // so follow-up paints ("tenta de novo") work without re-capturing 4 views.
   let effectiveMeshUrl: string | null = freshMeshUrl ?? null
   let cachedFaces: SemanticFace[] | null = null
   let cachedPreviews: PreviewBundle | null = null
 
-  if (!effectiveMeshUrl) {
-    const lastWithMesh = [...history].reverse().find((h) => {
-      const vr = readCachedDesign(h.validationReport)
-      return vr?.kind === 'imported' && !!vr.baseMeshUrl
-    })
-    if (lastWithMesh) {
-      const vr = readCachedDesign(lastWithMesh.validationReport)
-      effectiveMeshUrl = vr?.kind === 'imported' ? vr.baseMeshUrl : null
-      cachedFaces = (vr?._faces ?? null) as SemanticFace[] | null
-      cachedPreviews = (vr?._previews ?? null) as PreviewBundle | null
+  const lastImported = [...history].reverse().find((h) => {
+    const vr = readCachedDesign(h.validationReport)
+    return vr?.kind === 'imported' && !!vr.baseMeshUrl
+  })
+  if (lastImported) {
+    const vr = readCachedDesign(lastImported.validationReport)
+    if (vr?.kind === 'imported') {
+      if (!effectiveMeshUrl) effectiveMeshUrl = vr.baseMeshUrl
+      cachedFaces = (vr._faces ?? null) as SemanticFace[] | null
+      cachedPreviews = (vr._previews ?? null) as PreviewBundle | null
     }
+  }
+
+  // 1×1 PNG — enough for paint_from_image / paint_brush (they ignore previews).
+  // Real multi-view still used when the client or cache provides them (LLM path).
+  const STUB_PREVIEW =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const stubPreviews: PreviewBundle = {
+    top: STUB_PREVIEW,
+    front: STUB_PREVIEW,
+    right: STUB_PREVIEW,
+    iso: STUB_PREVIEW,
   }
 
   let importContext: Parameters<typeof parseDesign>[0]['importContext'] | undefined
@@ -181,13 +201,7 @@ export async function POST(req: Request) {
 
       const base = await loadBaseMeshFromUrl(effectiveMeshUrl)
       const faces = cachedFaces ?? segmentFaces(base)
-      const previews = cachedPreviews ?? freshPreviews
-      if (!previews) {
-        await db.update(iterations)
-          .set({ status: 'failed', error: 'previewDataUrls required for imported mesh' })
-          .where(eq(iterations.id, iteration.id))
-        return apiError(400, 'previews_required', 'A edição de malha importada exige as pré-visualizações (o cliente deve capturá-las e enviá-las no primeiro pedido).', { iteration_id: iteration.id })
-      }
+      const previews = freshPreviews ?? cachedPreviews ?? stubPreviews
       importContext = {
         baseMeshUrl: effectiveMeshUrl,
         faces,
@@ -221,7 +235,45 @@ export async function POST(req: Request) {
   let designSource: 'llm' | 'override' | 'quick_modifier' = 'llm'
   try {
     let candidate: Awaited<ReturnType<typeof parseDesign>>
-    if (logoPlacement) {
+    if (paintPlacement) {
+      if (!effectiveMeshUrl) {
+        await db.update(iterations)
+          .set({ status: 'failed', error: 'paintPlacement requires an imported base mesh' })
+          .where(eq(iterations.id, iteration.id))
+        return apiError(400, 'no_imported_mesh', 'Nenhuma malha importada para pintar.', { iteration_id: iteration.id })
+      }
+      // Fast path: paint on top of the *current* mesh (already coloured), not
+      // the raw import + full edit history. Replaying paint_from_image + every
+      // prior brush on a 1M-tri sculpt OOM'd the server on each click.
+      // 'sliced' is mesh-backed too (POST /api/slice flips 'ready' → 'sliced'
+      // while keeping meshBlobUrl) — skipping it would discard prior paint.
+      // Only imported-kind rows qualify: a parametric STL row's mesh is never
+      // a valid paint base for the imported flow.
+      const lastPaintedMesh = [...history]
+        .reverse()
+        .find(
+          (h) =>
+            (h.status === 'ready' || h.status === 'sliced') &&
+            h.meshBlobUrl &&
+            readCachedDesign(h.validationReport)?.kind === 'imported',
+        )?.meshBlobUrl
+      const paintBaseUrl = lastPaintedMesh ?? effectiveMeshUrl
+      candidate = {
+        kind: 'imported',
+        baseMeshUrl: paintBaseUrl,
+        edits: [
+          {
+            op: 'paint_brush',
+            point: paintPlacement.point,
+            extruder: paintPlacement.extruder,
+            mode: paintPlacement.mode ?? 'radius',
+            radiusMm: paintPlacement.radiusMm,
+            featureAngleDeg: paintPlacement.featureAngleDeg ?? 38,
+          },
+        ],
+      } as Awaited<ReturnType<typeof parseDesign>>
+      designSource = 'override'
+    } else if (logoPlacement) {
       // Click-to-place: build the imported edit directly from the picked point —
       // no LLM, no semantic-face guesswork. The logo lands exactly where clicked.
       if (!effectiveMeshUrl) {
@@ -249,15 +301,21 @@ export async function POST(req: Request) {
       candidate = designOverride
       designSource = 'override'
     } else {
-      // Try deterministic pattern matching first — catches "logo maior",
-      // "tira a alça", "buraco do lado", etc. without burning LLM tokens
-      // or risking Haiku ignoring the modification.
-      // Skip quick-modifier for imported flow — it doesn't understand the op schema.
-      const quick = importContext ? null : tryQuickModify(message, previousDesign)
+      // Deterministic pattern matching first — no LLM when we can avoid it.
+      // Parametric: "logo maior", …  Imported: paint_from_image when ref image present.
+      let quick: Awaited<ReturnType<typeof parseDesign>> | null = null
+      if (importContext) {
+        const { tryQuickPaintImport } = await import('@/lib/design/quick-paint-import')
+        quick = tryQuickPaintImport(message, importContext.baseMeshUrl, previousDesign, {
+          hasReferenceImage: !!logoImageBuffer,
+        })
+      } else {
+        quick = tryQuickModify(message, previousDesign)
+      }
       if (quick) {
         candidate = quick
         designSource = 'quick_modifier'
-        log.info('quick modifier matched', { message })
+        log.info('quick modifier matched', { message, imported: !!importContext })
       } else {
         candidate = await parseDesign({
           messages: allMessages,
@@ -289,6 +347,7 @@ export async function POST(req: Request) {
   let finalMeshBytes: Uint8Array
   let metaBbox: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }
   let editWarnings: Array<{ opIndex: number; op: string; reason: string }> = []
+  let paintPalette: { A: string; B: string } | undefined
   if (design.kind === 'freeform') {
     const { meshyApiKey: apiKey } = await resolveConfig()
     if (!apiKey) {
@@ -320,10 +379,28 @@ export async function POST(req: Request) {
       return apiError(500, 'build_failed', 'Não foi possível gerar a peça.', { iteration_id: iteration.id })
     }
     // Parametric builders produce already-grounded geometry in the correct
-    // orientation — no post-processing needed.
-    finalMeshBytes = result.bodies.length > 1 ? serialize3mf(result.bodies) : result.stl
+    // orientation — no post-processing needed (no standing re-orientation here).
+    if (result.bodies.length > 1) {
+      const cfg = await resolveConfig()
+      const printer = getPrinter(cfg.printerModel)
+      const colors = {
+        bodyHex: cfg.filamentColorBody ?? DEFAULT_FILAMENT_COLOR_BODY,
+        accentHex: cfg.filamentColorAccent ?? DEFAULT_FILAMENT_COLOR_ACCENT,
+      }
+      finalMeshBytes = serialize3mf(result.bodies, {
+        colors: { aHex: colors.bodyHex, bHex: colors.accentHex },
+        projectSettings: buildProjectSettings(
+          printer,
+          { multicolor: true, standing: false },
+          colors,
+        ),
+      })
+    } else {
+      finalMeshBytes = result.stl
+    }
     metaBbox = result.meta.bboxMm
     editWarnings = result.warnings
+    paintPalette = result.meta.paintPalette
   }
 
   // Guard the tail: persistMesh + the finalize updates run after the last
@@ -336,8 +413,16 @@ export async function POST(req: Request) {
     // don't re-segment the mesh or require the client to re-send previews.
     const validationReport: Record<string, unknown> =
       design.kind === 'imported' && importContext
-        ? { ...(design as object), _faces: importContext.faces, _previews: importContext.previewDataUrls }
-        : (design as unknown as Record<string, unknown>)
+        ? {
+            ...(design as object),
+            _faces: importContext.faces,
+            _previews: importContext.previewDataUrls,
+            ...(paintPalette ? { _paintPalette: paintPalette } : {}),
+          }
+        : {
+            ...(design as unknown as Record<string, unknown>),
+            ...(paintPalette ? { _paintPalette: paintPalette } : {}),
+          }
 
     await db.update(iterations)
       .set({
@@ -363,6 +448,7 @@ export async function POST(req: Request) {
       meta: {
         kind: design.kind,
         bbox_mm: metaBbox,
+        paint_palette: paintPalette,
       },
     })
   } catch (err) {

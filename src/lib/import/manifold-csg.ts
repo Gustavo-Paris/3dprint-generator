@@ -76,7 +76,7 @@ function manifoldToSoup(m: Manifold): Float32Array {
   return out
 }
 
-export type ManifoldBoolean = 'subtract' | 'union'
+export type ManifoldBoolean = 'subtract' | 'union' | 'intersect'
 
 /**
  * Run a boolean of `tool` against `base` (both raw triangle soups) and return
@@ -102,7 +102,10 @@ export async function booleanSoup(
       )
     }
     tool = soupToManifold(wasm, toolPositions)
-    result = op === 'subtract' ? base.subtract(tool) : base.add(tool)
+    result =
+      op === 'subtract' ? base.subtract(tool)
+      : op === 'union' ? base.add(tool)
+      : base.intersect(tool)
     if (result.isEmpty()) {
       throw new Error('boolean produced an empty result (the logo may not intersect the chosen face)')
     }

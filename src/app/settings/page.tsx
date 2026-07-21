@@ -95,21 +95,34 @@ export default async function SettingsPage({
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="aiApiKey" className={labelCls}>API key</label>
+              <label htmlFor="aiApiKey" className={labelCls}>API key (provedor OpenAI-compatible)</label>
               <input id="aiApiKey" name="aiApiKey" type="password" autoComplete="off" className={inputCls}
-                placeholder={s.aiApiKeySet ? '•••••••• (definida) — deixe em branco para manter' : 'sk-…'} />
-              <div className="flex items-center justify-between">
+                placeholder={s.aiFromEnv || (s.aiApiKeySet && s.aiActivePath === 'byo')
+                  ? '•••••••• (definida) — deixe em branco para manter'
+                  : 'sk-…'} />
+              <div className="flex items-center justify-between gap-3">
                 <p className={hintCls}>
-                  {s.aiApiKeySet
-                    ? (s.aiFromEnv ? 'Definida via variável de ambiente (AI_API_KEY).' : 'Definida (cifrada).')
-                    : 'Nenhuma chave definida.'}
+                  {s.aiFromEnv
+                    ? 'Chave BYO via AI_API_KEY no ambiente.'
+                    : s.aiActivePath === 'byo' && s.aiApiKeySet
+                      ? 'Chave BYO guardada cifrada no banco.'
+                      : 'Chave BYO opcional se o endpoint não exigir auth.'}
                 </p>
-                {s.aiApiKeySet && !s.aiFromEnv && (
-                  <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                {s.aiActivePath === 'byo' && s.aiApiKeySet && !s.aiFromEnv && (
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500">
                     <input type="checkbox" name="clearAiApiKey" className="rounded border-slate-300" /> remover
                   </label>
                 )}
               </div>
+              <p
+                className={
+                  s.aiActivePath === 'none'
+                    ? 'rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900'
+                    : 'rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-900'
+                }
+              >
+                {s.aiActiveHint}
+              </p>
             </div>
           </section>
 
@@ -141,6 +154,48 @@ export default async function SettingsPage({
             </div>
           </section>
 
+          {/* ── Printer ─────────────────────────────────────────────────── */}
+          <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-soft">
+            <div>
+              <h2 className="font-semibold text-slate-900">Impressora</h2>
+              <p className={hintCls}>
+                Com a impressora definida, o 3MF baixado já abre no Bambu Studio com
+                perfil de impressão curado.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="printerModel" className={labelCls}>Impressora</label>
+              <select id="printerModel" name="printerModel" defaultValue={s.printerModel} className={inputCls}>
+                <option value="">Nenhuma — 3MF sem perfil embutido</option>
+                <option value="bambu-h2d-04">Bambu Lab H2D · bico 0.4</option>
+              </select>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label htmlFor="filamentColorBody" className={labelCls}>Cor do corpo</label>
+                <input
+                  id="filamentColorBody"
+                  name="filamentColorBody"
+                  type="color"
+                  defaultValue={s.filamentColorBody}
+                  className="h-11 w-full cursor-pointer rounded-lg border border-slate-300 bg-white p-1"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="filamentColorAccent" className={labelCls}>Cor do detalhe/logo</label>
+                <input
+                  id="filamentColorAccent"
+                  name="filamentColorAccent"
+                  type="color"
+                  defaultValue={s.filamentColorAccent}
+                  className="h-11 w-full cursor-pointer rounded-lg border border-slate-300 bg-white p-1"
+                />
+              </div>
+            </div>
+          </section>
+
           {/* ── Slicer ──────────────────────────────────────────────────── */}
           <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-soft">
             <div>
@@ -151,6 +206,11 @@ export default async function SettingsPage({
               <label htmlFor="slicerUrl" className={labelCls}>Slicer URL</label>
               <input id="slicerUrl" name="slicerUrl" defaultValue={s.slicerUrl} className={inputCls}
                 placeholder="http://localhost:8787" />
+              <p className={hintCls}>
+                {s.slicerFromEnv
+                  ? `Valor atual vem de SLICER_URL no ambiente (${s.slicerUrl}). Local: http://localhost:8787`
+                  : `Override no banco. Env SLICER_URL fica de fallback se limpar este campo.`}
+              </p>
             </div>
           </section>
 

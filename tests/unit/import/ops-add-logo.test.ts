@@ -26,20 +26,23 @@ beforeAll(async () => {
 })
 
 describe('applyAddLogo', () => {
-  it('embossed appends a separate extruder-B body protruding above the face', async () => {
+  it('embossed carves the host then appends logo B (no double walls)', async () => {
     const topFace = faces.findIndex((f) => Math.abs(f.normal[2] - 1) < 0.01)
     const out = await applyAddLogo(cube, {
       op: 'add_logo', faceId: topFace, imageUrl: 'http://mock/logo.png',
       sizeMm: 10, depthMm: 0.6, treatment: 'embossed', offsetMm: [0, 0],
     }, faces)
-    // The logo is a distinct extruder-B body (two-colour print), not unioned.
+    // Distinct extruder-B body for multi-colour; host A was carved so the
+    // logo does not stack on top of existing geometry (double-wall bug).
     const extruders = new Set(out.extruders)
     expect(extruders.has('A')).toBe(true)
     expect(extruders.has('B')).toBe(true)
-    // It protrudes above the 30mm cube, but sits slightly embedded (< full
-    // depth) so the slicer fuses it: 30 < z < 30.6.
-    expect(out.bbox.size[2]).toBeGreaterThan(30.3)
-    expect(out.bbox.size[2]).toBeLessThan(30.6)
+    const aTris = out.extruders.filter((e) => e === 'A').length
+    // Carve must change A (cube alone is not still the full A soup).
+    expect(aTris).not.toBe(cube.triangleCount)
+    // Proud of the cube by ~half depth after embed.
+    expect(out.bbox.size[2]).toBeGreaterThan(30.2)
+    expect(out.bbox.size[2]).toBeLessThan(30.8)
   })
 
   it('engraved carves the host and fills the recess with a colour-B inlay', async () => {
@@ -48,13 +51,29 @@ describe('applyAddLogo', () => {
       op: 'add_logo', faceId: topFace, imageUrl: 'http://mock/logo.png',
       sizeMm: 10, depthMm: 0.6, treatment: 'engraved', offsetMm: [0, 0],
     }, faces)
-    // Inlay = host carved (A) + logo filling the pocket (B), so the recessed
-    // logo is a distinct colour and actually visible.
+    // Inlay = host carved (A) + (logo ∩ mesh) as B — intersect so the fill
+    // never floats outside a curved host.
     const extruders = new Set(out.extruders)
     expect(extruders.has('A')).toBe(true)
     expect(extruders.has('B')).toBe(true)
     // It sits flush in the surface — not raised like an emboss: Z stays ~30mm.
     expect(out.bbox.size[2]).toBeGreaterThan(29.5)
+    expect(out.bbox.size[2]).toBeLessThan(30.3)
+  })
+
+  it('anchorPoint placement still produces a multi-extruder result', async () => {
+    // Click-to-place path (no faceId) — same clipping as face-based.
+    const out = await applyAddLogo(cube, {
+      op: 'add_logo',
+      imageUrl: 'http://mock/logo.png',
+      sizeMm: 8,
+      depthMm: 0.8,
+      treatment: 'engraved',
+      offsetMm: [0, 0],
+      anchorPoint: [0, 0, 15],
+      anchorNormal: [0, 0, 1],
+    }, faces)
+    expect(new Set(out.extruders).has('B')).toBe(true)
     expect(out.bbox.size[2]).toBeLessThan(30.3)
   })
 })

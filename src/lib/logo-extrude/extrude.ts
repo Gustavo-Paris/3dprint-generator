@@ -87,6 +87,15 @@ export interface LogoExtrudeOptions {
    *  Default 4 (compromise: filters anti-aliasing noise around stroke
    *  edges while preserving thin strokes in line-art monograms). */
   turdSize?: number
+  /** Potrace curve simplification tolerance. Lower = more faithful to the
+   *  bitmap (keeps thin monogram corners). Default 0.2. */
+  optTolerance?: number
+  /**
+   * After binarisation, morphologically fatten black ink by this many pixels
+   * (blur + re-threshold). Makes thin letter stems more printable without
+   * changing the overall logo bbox. 0 = off. Typical: 1 for monograms.
+   */
+  fattenPx?: number
   /** Manual binarization threshold (0..255). When omitted, potrace's Otsu
    * auto-threshold is used. Override when auto produces a bad cut for THIS image. */
   threshold?: number
@@ -159,6 +168,8 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   const depthMm = opts.depthMm ?? 8
   const cropFraction = opts.cropFraction ?? 1
   const turdSize = opts.turdSize ?? 8
+  const optTolerance = opts.optTolerance ?? 0.2
+  const fattenPx = Math.max(0, opts.fattenPx ?? 0)
   const manualThreshold = opts.threshold // undefined = use Otsu
   const mode = opts.mode ?? 'silhouette'
   const forceInvert = opts.forceInvert
@@ -328,6 +339,22 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
     const rawBytes = await sharp(grayscale).grayscale().raw().toBuffer()
     traceThreshold = computeOtsuThreshold(new Uint8Array(rawBytes))
   }
+
+  // Optional morphological fatten: blur black ink outward then re-threshold so
+  // thin monogram stems survive 0.4 mm nozzles without changing overall size.
+  if (fattenPx > 0) {
+    const sigma = Math.max(0.4, fattenPx * 0.55)
+    // Potrace treats dark as ink. Blur softens edges; threshold pulls the
+    // mid-grey halo back into solid black → strokes grow by ~fattenPx.
+    grayscale = await sharp(grayscale)
+      .grayscale()
+      .blur(sigma)
+      .threshold(Math.min(250, traceThreshold + 20))
+      .toBuffer()
+    // After fatten the image is pure B/W; lock threshold to mid-grey.
+    traceThreshold = 128
+  }
+
   const svg: string = await new Promise((resolve, reject) => {
     potrace.trace(
       grayscale,
@@ -335,7 +362,7 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
         turdSize,
         alphaMax: 1,
         optCurve: true,
-        optTolerance: 0.2,
+        optTolerance,
         threshold: traceThreshold,
       },
       (err, s) => (err ? reject(err) : resolve(s)),

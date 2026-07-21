@@ -7,7 +7,9 @@ describe('badgeFor', () => {
   })
   it('shows JSCAD for parametric primitives even though strategy is generative', () => {
     expect(badgeFor({ kind: 'flat_plate', widthMm: 80, heightMm: 40 })).toBe('jscad')
-    expect(badgeFor({ kind: 'imported', baseMeshUrl: '/x.3mf' })).toBe('jscad')
+  })
+  it('shows imported for uploaded-mesh designs', () => {
+    expect(badgeFor({ kind: 'imported', baseMeshUrl: '/x.3mf' })).toBe('imported')
   })
   it('falls back to jscad when design is missing/unknown', () => {
     expect(badgeFor(undefined)).toBe('jscad')

@@ -6,6 +6,11 @@ import { and, asc, eq } from 'drizzle-orm'
 import { notFound, redirect } from 'next/navigation'
 import { isUuid } from '@/lib/validation/uuid'
 import { historyColumns } from '@/db/history-columns'
+import {
+  resolveConfig,
+  DEFAULT_FILAMENT_COLOR_BODY,
+  DEFAULT_FILAMENT_COLOR_ACCENT,
+} from '@/lib/settings/store'
 import ProjectWorkspace from '@/components/ProjectWorkspace'
 
 export async function generateMetadata({
@@ -51,5 +56,19 @@ export default async function ProjectPage({
     .where(eq(iterations.projectId, project.id))
     .orderBy(asc(iterations.createdAt))
 
-  return <ProjectWorkspace project={project} initialHistory={history} />
+  // Only non-secret print fields cross to the client — never keys/secrets.
+  const cfg = await resolveConfig()
+  const printConfig = {
+    printerModel: cfg.printerModel,
+    bodyHex: cfg.filamentColorBody ?? DEFAULT_FILAMENT_COLOR_BODY,
+    accentHex: cfg.filamentColorAccent ?? DEFAULT_FILAMENT_COLOR_ACCENT,
+  }
+
+  return (
+    <ProjectWorkspace
+      project={project}
+      initialHistory={history}
+      printConfig={printConfig}
+    />
+  )
 }

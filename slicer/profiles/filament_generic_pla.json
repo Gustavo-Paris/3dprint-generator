@@ -13,6 +13,14 @@
 		"18",
 		"18"
 	],
+	"filament_density": [
+		"1.24",
+		"1.24"
+	],
+	"filament_diameter": [
+		"1.75",
+		"1.75"
+	],
 	"filament_flow_ratio": [
 		"0.98",
 		"0.98"

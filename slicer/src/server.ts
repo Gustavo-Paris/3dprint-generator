@@ -22,7 +22,7 @@ app.get('/diag', (_req, res) => {
   const help = spawnSync(ORCA_BIN, ['--help'], { encoding: 'utf8' })
   const xvfb = spawnSync('which', ['xvfb-run'], { encoding: 'utf8' })
   const ls = spawnSync('ls', ['-la', '/opt/orca/orca-extracted/bin/'], { encoding: 'utf8' })
-  const profile = readFileSync(`${PROFILES_DIR}/machine_h2d_pla.json`, 'utf8')
+  const profile = readFileSync(`${PROFILES_DIR}/machine_x1c_0.4.json`, 'utf8')
   const profileStartLines = profile.split('\n').slice(0, 25).join('\n')
   res.json({
     ldd: { code: ldd.status, stdout: ldd.stdout, stderr: ldd.stderr },
@@ -35,12 +35,16 @@ app.get('/diag', (_req, res) => {
 })
 
 app.post('/slice', async (req, res) => {
-  const { stl_base64 } = req.body ?? {}
+  const { stl_base64, quality } = req.body ?? {}
   if (typeof stl_base64 !== 'string' || stl_base64.length === 0) {
     return res.status(400).json({ error: 'stl_base64 required' })
   }
 
-  if (!existsSync(`${PROFILES_DIR}/machine_h2d_pla.json`)) {
+  // Optional print quality. Anything other than the exact literal 'fine' falls
+  // back to 'standard' — never an error for an invalid/absent quality.
+  const processProfile = quality === 'fine' ? 'process_x1c_0.16.json' : 'process_x1c_0.20.json'
+
+  if (!existsSync(`${PROFILES_DIR}/machine_x1c_0.4.json`)) {
     return res.status(500).json({ error: 'Profiles not bundled yet (TASK-024)' })
   }
 
@@ -63,7 +67,7 @@ app.post('/slice', async (req, res) => {
       '--debug', '5',
       '--no-check',
       '--slice', '0',
-      '--load-settings', `${PROFILES_DIR}/machine_h2d_pla.json;${PROFILES_DIR}/process_h2d_pla_0.2mm.json`,
+      '--load-settings', `${PROFILES_DIR}/machine_x1c_0.4.json;${PROFILES_DIR}/${processProfile}`,
       '--load-filaments', `${PROFILES_DIR}/filament_generic_pla.json`,
       ...(is3mf ? [] : ['--load-filament-ids', '1']),
       '--export-3mf', outPath,

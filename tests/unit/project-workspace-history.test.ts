@@ -18,7 +18,22 @@ describe('mapHistoryToMessages', () => {
     expect(msgs.find((m) => m.role === 'assistant')!.status).toBe('generating')
   })
   it('renders a ready generative row normally', () => {
-    const msgs = mapHistoryToMessages([row({ status: 'ready' })])
+    const msgs = mapHistoryToMessages([row({ status: 'ready', meshBlobUrl: '/meshes/x.stl' })])
     expect(msgs.find((m) => m.role === 'assistant')!.status).toBe('ready')
+  })
+
+  it('renders ready imported mesh rows (strategy imported + meshBlobUrl)', () => {
+    const msgs = mapHistoryToMessages([
+      row({
+        status: 'ready',
+        strategy: 'imported',
+        meshBlobUrl: '/meshes/x.3mf',
+        validationReport: { kind: 'imported', baseMeshUrl: '/u.3mf', edits: [{ op: 'paint_region', extruder: 'B', region: 'upper_half' }] },
+      }),
+    ])
+    const a = msgs.find((m) => m.role === 'assistant')!
+    expect(a.status).toBe('ready')
+    expect(a.text).toMatch(/importada/i)
+    expect((a.design as { kind: string }).kind).toBe('imported')
   })
 })

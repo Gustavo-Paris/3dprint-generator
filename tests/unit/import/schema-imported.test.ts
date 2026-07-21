@@ -15,7 +15,7 @@ describe('Design.imported variant', () => {
     if (result.success) expect(result.data.kind).toBe('imported')
   })
 
-  it('parses all five ops', () => {
+  it('parses all ops including paint_region', () => {
     const input = {
       kind: 'imported',
       baseMeshUrl: 'https://x/y.3mf',
@@ -25,6 +25,11 @@ describe('Design.imported variant', () => {
         { op: 'add_logo', faceId: 1, imageUrl: 'https://x/l.png', sizeMm: 30, depthMm: 0.6 },
         { op: 'emboss_text', faceId: 1, text: 'HELLO', treatment: 'embossed', sizeMm: 8, depthMm: 0.5 },
         { op: 'jscad_raw', code: 'module.exports={main:()=>jscad.primitives.cube({size:10})}' },
+        { op: 'paint_region', extruder: 'B', region: 'upper_half' },
+        { op: 'paint_region', extruder: 'B', faceIds: [0, 1] },
+        { op: 'paint_region', extruder: 'B', zFraction: { min: 0.4, max: 1 } },
+        { op: 'paint_from_image', view: 'front' },
+        { op: 'paint_brush', point: [1, 2, 3], extruder: 'B', radiusMm: 12 },
       ],
     }
     expect(Design.safeParse(input).success).toBe(true)

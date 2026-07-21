@@ -1,5 +1,6 @@
 import type { BaseMesh } from '../types'
 import type Geom3 from '@jscad/modeling/src/geometries/geom3/type'
+import type Mat4 from '@jscad/modeling/src/maths/mat4/type'
 
 type Transforms = typeof import('@jscad/modeling').transforms
 
@@ -109,34 +110,58 @@ export function makeFrame(normal: [number, number, number]) {
   return { tangent, bitangent }
 }
 
-/** Rotate a geom built along +Z so its axis aligns with `normal`. */
+/** Unit-length copy of a 3-vector (falls back to +Z if zero). */
+function unit3(v: [number, number, number]): [number, number, number] {
+  const len = Math.hypot(v[0], v[1], v[2]) || 1
+  return [v[0] / len, v[1] / len, v[2] / len]
+}
+
+/**
+ * Column-major mat4 that rotates +Z onto `normal` (unit). Identity / 180°
+ * around X for the degenerate cases — same contract as mat4.fromVectorRotation.
+ */
+export function mat4AlignZToNormal(normal: [number, number, number]): Mat4 {
+  const n = unit3(normal)
+  const dot = Math.max(-1, Math.min(1, n[2]))
+  if (dot > 0.9999) {
+    return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+  }
+  if (dot < -0.9999) {
+    // 180° about X: (x,y,z) → (x,-y,-z)
+    return [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1]
+  }
+  // axis = Z × n = [-ny, nx, 0]
+  const alen = Math.hypot(-n[1], n[0]) || 1
+  const ux = -n[1] / alen
+  const uy = n[0] / alen
+  const uz = 0
+  const angle = Math.acos(dot)
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  const t = 1 - c
+  // Rodrigues, column-major (OpenGL / JSCAD mat4 layout)
+  return [
+    t * ux * ux + c, t * ux * uy + s * uz, t * ux * uz - s * uy, 0,
+    t * ux * uy - s * uz, t * uy * uy + c, t * uy * uz + s * ux, 0,
+    t * ux * uz + s * uy, t * uy * uz - s * ux, t * uz * uz + c, 0,
+    0, 0, 0, 1,
+  ]
+}
+
+/**
+ * Rotate a geom built along +Z so its axis aligns with `normal`.
+ *
+ * Uses a full axis-angle rotation. The previous rotateX-OR-rotateY shortcut
+ * was wrong for any normal with both nx and ny nonzero — logos on curved /
+ * diagonal surfaces landed skewed or floating off the surface.
+ */
 export function orientAlongNormal(
   geom: Geom3,
   normal: [number, number, number],
   transforms: Transforms,
 ): Geom3 {
-  // Geometry is built with extrusion along Z=[0,0,1].
-  // Compute rotation that maps Z to `normal`.
-  const dot = Math.max(-1, Math.min(1, normal[2])) // Z · normal = nz
-
-  // Z aligns: no rotation needed
-  if (dot > 0.9999) return geom
-
-  // Z anti-aligns: flip 180° around X
-  if (dot < -0.9999) return transforms.rotateX(Math.PI, geom) as Geom3
-
-  const angle = Math.acos(dot)
-
-  // Rotation axis = Z × normal = [0,0,1] × [nx,ny,nz] = [-ny, nx, 0]
-  const axisX = -normal[1]
-  const axisY = normal[0]
-  const alen = Math.sqrt(axisX * axisX + axisY * axisY) || 1
-  const naxisX = axisX / alen
-  const naxisY = axisY / alen
-
-  if (Math.abs(naxisY) >= Math.abs(naxisX)) {
-    return transforms.rotateY(angle * Math.sign(naxisY), geom) as Geom3
-  } else {
-    return transforms.rotateX(angle * Math.sign(naxisX), geom) as Geom3
-  }
+  const n = unit3(normal)
+  if (n[2] > 0.9999) return geom
+  if (n[2] < -0.9999) return transforms.rotateX(Math.PI, geom) as Geom3
+  return transforms.transform(mat4AlignZToNormal(n), geom) as Geom3
 }

@@ -273,8 +273,78 @@ const JscadRawOp = z.object({
   mode: z.enum(['union', 'replace']).default('union'),
 })
 
+/**
+ * Multi-material paint on an imported mesh: re-labels triangles to extruder A or B
+ * without changing geometry. Viewer + Bambu 3MF both map B to the second colour.
+ * Provide exactly one of: faceIds | zFraction | region.
+ */
+const PaintRegionOp = z.object({
+  op: z.literal('paint_region'),
+  /** Target extruder. Default B (second colour / logo slot). */
+  extruder: z.enum(['A', 'B']).default('B'),
+  /** Semantic face ids from the import face table (F0, F1, …). */
+  faceIds: z.array(z.number().int().nonnegative()).min(1).optional(),
+  /**
+   * Height band as a fraction of the mesh bbox Z range (0 = bottom, 1 = top).
+   * Triangle centroids whose Z falls inside [min, max] are painted.
+   */
+  zFraction: z
+    .object({
+      min: z.number().min(0).max(1).default(0),
+      max: z.number().min(0).max(1).default(1),
+    })
+    .optional(),
+  /**
+   * Named presets (resolved against bbox + face normals). Prefer these for
+   * vague multi-colour asks ("mais de uma cor", "topo dourado").
+   */
+  region: z
+    .enum([
+      'all',
+      'upper_half',
+      'lower_half',
+      'top_faces',
+      'bottom_faces',
+      'front_faces',
+      'back_faces',
+      'left_faces',
+      'right_faces',
+    ])
+    .optional(),
+})
+
+/**
+ * Project a reference colour image onto the mesh (front orthographic) and
+ * quantize to A/B. Image bytes come from the chat attachment (logoImageBuffer).
+ */
+const PaintFromImageOp = z.object({
+  op: z.literal('paint_from_image'),
+  /** Reserved for future multi-view; currently always front XZ projection. */
+  view: z.enum(['front']).default('front'),
+})
+
+/** Click-to-paint: set extruder near a point (radius) or flood a closed region. */
+const PaintBrushOp = z.object({
+  op: z.literal('paint_brush'),
+  point: z.tuple([z.number(), z.number(), z.number()]),
+  extruder: z.enum(['A', 'B']).default('B'),
+  /**
+   * radius — sphere brush (default).
+   * fill   — paint-bucket: flood-fill the surface region bounded by sharp edges.
+   */
+  mode: z.enum(['radius', 'fill']).default('radius'),
+  /** Brush radius in mm (mesh units). Used by radius mode; fill uses as fallback. */
+  radiusMm: z.number().positive().default(12),
+  /**
+   * fill mode: dihedral angle (deg) above which an edge is a barrier.
+   * Lower = more barriers (smaller regions). ~35–45 works for character sculpts.
+   */
+  featureAngleDeg: z.number().positive().max(90).default(38),
+})
+
 const Op = z.discriminatedUnion('op', [
   ScaleOp, HoleOp, AddLogoOp, EmbossTextOp, JscadRawOp,
+  PaintRegionOp, PaintFromImageOp, PaintBrushOp,
 ])
 export type Op = z.infer<typeof Op>
 

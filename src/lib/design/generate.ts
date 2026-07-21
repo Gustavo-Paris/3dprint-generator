@@ -55,6 +55,8 @@ export interface GenerateResult {
   meta: {
     kind: Design['kind']
     bboxMm: { x: number; y: number; z: number }
+    /** Viewer colour pickers after paint_from_image. */
+    paintPalette?: { A: string; B: string }
   }
   /** Edits that were skipped or failed (imported flow). Empty for parametric. */
   warnings: EditWarning[]
@@ -67,6 +69,7 @@ interface InternalBuildResult {
   meta: {
     kind: Design['kind']
     bboxMm: { x: number; y: number; z: number }
+    paintPalette?: { A: string; B: string }
   }
   warnings?: EditWarning[]
 }
@@ -88,33 +91,55 @@ export async function generateFromDesign(
     case 'mug':             result = await buildMug(design, ctx); break
     case 'imported': {
       const { loadBaseMeshFromUrl } = await import('@/lib/import/load-base-mesh')
-      const { segmentFaces } = await import('@/lib/import/face-segment')
       const { applyEdits } = await import('@/lib/import/apply-edits')
 
       const base = await loadBaseMeshFromUrl(design.baseMeshUrl)
-      const faces = segmentFaces(base)
-      const { mesh, warnings } = await applyEdits(base, design.edits, faces, ctx.logoImageBuffer)
+      // segmentFaces is O(n²-ish) on organic sculpts — only needed for paint_region
+      // faceIds / hole / emboss. Paint brush/fill only need triangle labels.
+      const needsFaces = design.edits.some(
+        (e) =>
+          e.op === 'paint_region' ||
+          e.op === 'hole' ||
+          e.op === 'emboss_text' ||
+          e.op === 'add_logo',
+      )
+      const faces = needsFaces
+        ? (await import('@/lib/import/face-segment')).segmentFaces(base)
+        : []
+      const { mesh, warnings, paintPalette } = await applyEdits(
+        base,
+        design.edits,
+        faces,
+        ctx.logoImageBuffer,
+      )
 
       if (warnings.length > 0) {
         console.warn('[generate:imported] warnings:', warnings)
       }
 
-      const distinctExtruders = Array.from(new Set(mesh.extruders))
-      const bodies: MeshBody[] = distinctExtruders.length > 1
+      const distinctExtruders = Array.from(new Set(mesh.extruders)) as Array<'A' | 'B'>
+      const multi = distinctExtruders.length > 1
+      const bodies: MeshBody[] = (multi
         ? distinctExtruders.map((ex) => ({
             positions: filterByExtruder(mesh, ex),
             extruder: ex,
-            label: `Extruder ${ex}`,
+            label: ex === 'B' ? 'Cor B (destaque)' : 'Cor A (base)',
           }))
         : [{ positions: mesh.positions, extruder: 'A' as const, label: 'Body' }]
+      ).filter((b) => b.positions.length > 0)
 
-      const stl = serializeBinarySTL(Array.from(mesh.positions))
+      // Multi-colour path serializes 3MF from bodies; skip the giant STL copy
+      // (Array.from on 1M+ verts was blowing memory on every paint click).
+      const stl = multi
+        ? new Uint8Array(0)
+        : serializeBinarySTL(Array.from(mesh.positions))
       result = {
         stl,
         bodies,
         meta: {
           kind: 'imported',
           bboxMm: { x: mesh.bbox.size[0], y: mesh.bbox.size[1], z: mesh.bbox.size[2] },
+          paintPalette,
         },
         warnings,
       }

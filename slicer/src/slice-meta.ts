@@ -8,6 +8,11 @@ export type SliceMeta = {
 
 const EMPTY: SliceMeta = { print_time_min: null, filament_g: null, filament_m: null }
 
+/** Default PLA density (g/cm³) + 1.75 mm diameter — used only when Orca reports
+ *  metres of filament but 0 g (common when filament_density is mis-set to 0). */
+const DEFAULT_PLA_DENSITY = 1.24
+const DEFAULT_FILAMENT_DIAMETER_MM = 1.75
+
 /** OrcaSlicer writes the real estimates into the output 3MF, not stdout. Read
  *  Metadata/slice_info.config first (authoritative), then fall back to the
  *  plate_1.gcode header comments. Never throws — returns nulls on any failure. */
@@ -53,7 +58,18 @@ export function parse3mfSliceMeta(zip: Buffer): SliceMeta {
       if (fm) out.filament_m = Number(fm[1]) / 1000
     }
   }
-  return out
+  return enrichFilamentMass(out)
+}
+
+function enrichFilamentMass(meta: SliceMeta): SliceMeta {
+  const m = meta.filament_m
+  if (m != null && m > 0 && (meta.filament_g == null || meta.filament_g === 0)) {
+    const rMm = DEFAULT_FILAMENT_DIAMETER_MM / 2
+    const lengthMm = m * 1000
+    const volCm3 = (Math.PI * rMm * rMm * lengthMm) / 1000
+    return { ...meta, filament_g: Math.round(volCm3 * DEFAULT_PLA_DENSITY * 100) / 100 }
+  }
+  return meta
 }
 
 function parseGcodeTimeMin(s: string): number | null {

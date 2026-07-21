@@ -23,6 +23,21 @@ self.onmessage = async (e: MessageEvent<Input>) => {
   if (msg.type === 'stl') {
     try {
       const bytes = msg.stl
+      // Paint-bin (interactive multi-colour) — "3DGP"
+      if (bytes[0] === 0x33 && bytes[1] === 0x44 && bytes[2] === 0x47 && bytes[3] === 0x50) {
+        const { decodePaintBin, meshToBodies } = await import('@/lib/3mf/paint-bin')
+        const mesh = decodePaintBin(bytes)
+        const bodies = meshToBodies(mesh)
+        const result: JscadResult = {
+          ok: true,
+          positions: mesh.positions,
+          bodies,
+          triangleCount: mesh.triangleCount,
+          stl: bytes,
+        }
+        reply(result)
+        return
+      }
       const is3mf = bytes[0] === 0x50 && bytes[1] === 0x4b
       if (is3mf) {
         const bodies = parse3mf(bytes)

@@ -134,7 +134,9 @@ describe('POST /api/generate (imported .3mf flow)', () => {
     expect(body.iteration_id).toBe(mockIteration.id)
   })
 
-  it('returns 400 when meshUrl provided but no previews and no cached previews', async () => {
+  // Previews are optional by design: the route falls back to a 1×1 stub bundle
+  // (paint ops ignore previews; the LLM path still gets real ones when sent).
+  it('succeeds with stub previews when meshUrl provided but no previews', async () => {
     selectCallCount = 0
 
     const { POST } = await import('@/app/api/generate/route')
@@ -146,11 +148,13 @@ describe('POST /api/generate (imported .3mf flow)', () => {
           projectId: '550e8400-e29b-41d4-a716-446655440000',
           message: 'scale it',
           meshUrl: 'https://store1.public.blob.vercel-storage.com/test-user-id/uploads/cube.3mf',
-          // No previewDataUrls!
+          // No previewDataUrls — route substitutes the stub bundle.
         }),
       }),
     )
 
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.design.kind).toBe('imported')
   })
 })

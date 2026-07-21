@@ -145,7 +145,7 @@ export default function SliceButton({
             onClick={download}
             className="w-full bg-emerald-600 text-white rounded-lg px-3 py-2 min-h-11 hover:bg-emerald-500 transition font-medium"
           >
-            Baixar .3mf
+            Baixar 3MF fatiado (perfil genérico — pré-visualização)
           </button>
         </div>
       )}
