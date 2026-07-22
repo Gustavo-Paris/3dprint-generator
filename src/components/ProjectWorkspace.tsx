@@ -240,7 +240,7 @@ export default function ProjectWorkspace({
         } else if (lastReady.meshBlobUrl) {
           // Mesh URL present — covers generative, imported, freeform, flexified, …
           const res = await fetch(lastReady.meshBlobUrl)
-          if (!res.ok) throw new Error(`Mesh fetch ${res.status}`)
+          if (!res.ok) throw new Error(`Não foi possível carregar a peça (HTTP ${res.status}). Recarregue a página ou gere novamente.`)
           const bytes = new Uint8Array(await res.arrayBuffer())
           const r = await runInWorker({ type: 'stl', stl: bytes })
           if (cancelled) return
@@ -253,7 +253,7 @@ export default function ProjectWorkspace({
           } else setError(r.error)
         }
       } catch (e) {
-        if (!cancelled) setError(String(e))
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
       }
     })()
     return () => {
@@ -291,7 +291,7 @@ export default function ProjectWorkspace({
     setValidity(null)
     try {
       const res = await fetch(meshUrl)
-      if (!res.ok) throw new Error(`Mesh fetch ${res.status}`)
+      if (!res.ok) throw new Error(`Não foi possível carregar a peça (HTTP ${res.status}). Recarregue a página ou gere novamente.`)
       const bytes = new Uint8Array(await res.arrayBuffer())
       const result = await runInWorker({ type: 'stl', stl: bytes })
       if (result.ok) {
@@ -303,7 +303,7 @@ export default function ProjectWorkspace({
         setError(result.error)
       }
     } catch (e) {
-      setError(String(e))
+      setError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -334,7 +334,7 @@ export default function ProjectWorkspace({
         let bytes: Uint8Array
         if (r.meshUrl) {
           const res = await fetch(r.meshUrl)
-          if (!res.ok) throw new Error(`Mesh fetch ${res.status}`)
+          if (!res.ok) throw new Error(`Não foi possível carregar a peça (HTTP ${res.status}). Recarregue a página ou gere novamente.`)
           bytes = new Uint8Array(await res.arrayBuffer())
         } else if (r.meshBase64) {
           bytes = base64ToUint8(r.meshBase64)
@@ -350,7 +350,7 @@ export default function ProjectWorkspace({
         } else setError(result.error)
       }
     } catch (e) {
-      setError(String(e))
+      setError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -610,7 +610,16 @@ export default function ProjectWorkspace({
           pickMarker={pick?.point ?? null}
           loading={!!iterationId && positions === null && !error}
         />
-        <div className="absolute top-4 left-4 z-10 flex flex-wrap gap-2 max-w-[min(100%,28rem)]">
+        {/* Overlay controls. Mobile (<lg): a single bottom sheet in flow — no
+            loose absolutes over the canvas. Desktop (lg+): the sheet becomes
+            display:contents and the two inner columns position themselves as
+            narrow absolute flow-columns (left/right) that never overlap. */}
+        {(positions || stl) && (
+        <div className="absolute inset-x-0 bottom-0 z-10 flex max-h-[60%] flex-row flex-wrap items-start gap-2 overflow-y-auto border-t border-slate-800 bg-slate-950/90 p-2 backdrop-blur lg:contents">
+        {/* Left column: action toolbar + logo-position fieldset + paint panel,
+            stacked in flow so they can never cover each other. */}
+        <div className="contents lg:absolute lg:left-4 lg:top-[4.5rem] lg:z-10 lg:flex lg:max-h-[calc(100%-6rem)] lg:max-w-xs lg:flex-col lg:gap-2 lg:overflow-y-auto">
+        <div className="flex flex-wrap gap-2">
           <DownloadStlButton iterationId={iterationId} stl={stl} />
           <FlexifyButton
             projectId={project.id}
@@ -662,7 +671,7 @@ export default function ProjectWorkspace({
           )}
         </div>
         {paintMode && positions && (
-          <div className="absolute top-[4.5rem] left-4 z-20 bg-emerald-950/90 backdrop-blur border border-emerald-700 rounded-xl p-3 text-xs shadow-card text-emerald-50 max-w-xs space-y-2">
+          <div className="bg-emerald-950/90 backdrop-blur border border-emerald-700 rounded-xl p-3 text-xs shadow-card text-emerald-50 max-w-xs space-y-2">
             <p className="font-medium">Pintura manual (só no browser)</p>
             <p className="text-emerald-100/80">
               {paintTool === 'fill'
@@ -753,11 +762,12 @@ export default function ProjectWorkspace({
         )}
 
         {/* Keyboard alternative to click-to-place: X/Y mm offsets from the mesh
-            top-center, feeding the SAME placement handler as a canvas click. */}
-        {positions && importedBaseAvailable && (
-          <fieldset className="absolute top-[4.5rem] left-4 z-10 bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-2 text-xs shadow-card text-slate-200">
+            top-center, feeding the SAME placement handler as a canvas click.
+            Shown only while pick mode is active so it never covers the toolbar. */}
+        {pickMode && positions && importedBaseAvailable && (
+          <fieldset className="bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-2 text-xs shadow-card text-slate-200">
             <legend className="px-1 text-slate-400">Posição do logo (teclado)</legend>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-1">
                 X (mm)
                 <input
@@ -791,7 +801,7 @@ export default function ProjectWorkspace({
 
         {/* Click-to-place panel */}
         {pickMode && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-xl shadow-lift p-3 flex items-center gap-3 text-sm text-slate-200">
+          <div className="bg-slate-900/90 backdrop-blur border border-slate-700 rounded-xl shadow-lift p-3 flex flex-wrap items-center gap-3 text-sm text-slate-200">
             {!pick ? (
               <span className="text-slate-300">👆 Clique no ponto do modelo onde quer o logo (arraste para girar)</span>
             ) : (
@@ -836,9 +846,13 @@ export default function ProjectWorkspace({
           </div>
         )}
 
+        </div>
+
+        {/* Right column: print colors + slice, stacked in flow. */}
+        <div className="contents lg:absolute lg:right-4 lg:top-4 lg:z-10 lg:flex lg:max-h-[calc(100%-6rem)] lg:max-w-xs lg:flex-col lg:items-end lg:gap-2 lg:overflow-y-auto">
         {/* Color configuration panel — only once a mesh is in the viewer */}
         {positions && (
-        <div className="absolute top-4 right-4 z-10 bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-3 shadow-card flex flex-col gap-2 text-xs text-slate-300">
+        <div className="bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-3 shadow-card flex flex-col gap-2 text-xs text-slate-300">
           <div className="font-semibold text-white border-b border-slate-700 pb-1">Cores de Impressão</div>
           <div className="flex items-center gap-2">
             <input
@@ -864,19 +878,26 @@ export default function ProjectWorkspace({
               Cor 2 / Logo (B)
             </label>
           </div>
-          <p className="text-[10px] text-slate-500 leading-snug max-w-[12rem]">
+          <p className="hidden lg:block text-[10px] text-slate-500 leading-snug max-w-[12rem]">
             Melhor: anexe o render de cores + &quot;pintar com a imagem&quot;. Ou use 🎨 Pintar cor 2 no modelo.
           </p>
         </div>
         )}
 
         <SliceButton iterationId={iterationId} stl={stl} />
+        </div>
+        </div>
+        )}
+
         {!error && <MeshValidityBanner report={validity} />}
+        {/* Error alert. Mobile (<lg): top-anchored + z-20 so the bottom sheet
+            (bottom-0 z-10, dynamic height) can never cover it. Desktop:
+            bottom-4 as before (columns are top-anchored there). */}
         {error && (
           <div
             role="alert"
             aria-live="assertive"
-            className="absolute bottom-4 left-4 right-4 bg-red-950/90 backdrop-blur text-red-100 border border-red-800 rounded-lg p-3 text-xs shadow-lift"
+            className="absolute top-4 left-4 right-4 z-20 lg:top-auto lg:bottom-4 bg-red-950/90 backdrop-blur text-red-100 border border-red-800 rounded-lg p-3 text-xs shadow-lift"
           >
             <strong>Erro:</strong> {error}
           </div>

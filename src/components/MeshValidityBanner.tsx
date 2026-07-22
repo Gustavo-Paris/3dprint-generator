@@ -25,10 +25,12 @@ export default function MeshValidityBanner({
       : 'bg-slate-900/80 text-slate-200 border-slate-700'
   const icon = state.tone === 'warn' ? '⚠' : 'ℹ'
 
+  // Mobile (<lg): top-anchored + z-20 so it neither hides under nor covers
+  // the workspace bottom sheet (bottom-0 z-10). Desktop: bottom-4 as before.
   return (
     <div
       role="status"
-      className={`absolute bottom-4 left-4 right-4 z-10 border rounded-lg p-3 text-xs backdrop-blur shadow-card ${tone}`}
+      className={`absolute top-4 left-4 right-4 z-20 lg:top-auto lg:bottom-4 border rounded-lg p-3 text-xs backdrop-blur shadow-card ${tone}`}
     >
       <strong>
         {icon} {state.title}

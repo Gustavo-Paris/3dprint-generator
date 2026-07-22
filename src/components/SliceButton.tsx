@@ -107,7 +107,10 @@ export default function SliceButton({
   if (!iterationId || !stl) return null
 
   return (
-    <div className="absolute top-[4.5rem] right-4 flex flex-col items-end gap-2 z-10">
+    // Positioning comes from the parent overlay column (ProjectWorkspace) —
+    // this renders in flow so it can never cover sibling controls. On mobile
+    // (bottom sheet) it jumps to the front so the primary CTA stays visible.
+    <div className="order-first flex flex-col items-end gap-2 lg:order-none">
       <button
         onClick={onClick}
         disabled={busy || slicerOk === false}
