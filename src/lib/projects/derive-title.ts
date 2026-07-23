@@ -1,4 +1,7 @@
-const DEFAULT_TITLE = 'Projeto sem título'
+/** Default title given to projects created without a name (see actions/projects.ts).
+ *  Exported so the generate route can detect "still unnamed" and auto-title. */
+export const DEFAULT_PROJECT_TITLE = 'Projeto sem título'
+const DEFAULT_TITLE = DEFAULT_PROJECT_TITLE
 const MAX_LEN = 60
 
 /**
@@ -8,7 +11,8 @@ const MAX_LEN = 60
  */
 export function deriveProjectTitle(prompt: string | null | undefined): string {
   const firstLine = (prompt ?? '').split('\n')[0].replace(/\s+/g, ' ').trim()
-  if (!firstLine || firstLine === '(image only)') return DEFAULT_TITLE
+  // '(image only)' is the legacy EN placeholder still present in old history rows.
+  if (!firstLine || firstLine === '(image only)' || firstLine === '(apenas imagem)') return DEFAULT_TITLE
   if (firstLine.length <= MAX_LEN) return firstLine
   return firstLine.slice(0, MAX_LEN).trimEnd() + '…'
 }

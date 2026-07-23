@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { requestFlexify } from './flexify-request'
+import { extractApiError } from '@/lib/http/client-error'
 import type { ChatResult } from './Chat'
 
 /**
@@ -53,7 +54,9 @@ export default function FlexifyButton({
         meshBase64: r.meshBase64,
       })
     } catch (e) {
-      setError((e as Error).message)
+      // requestFlexify may surface the raw apiError envelope JSON as the
+      // message — run it through the envelope parser so users see PT-BR.
+      setError(extractApiError((e as Error).message))
     } finally {
       setBusy(false)
     }
@@ -72,9 +75,9 @@ export default function FlexifyButton({
         disabled={busy}
         aria-busy={busy}
         className="bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm shadow-soft hover:bg-slate-800 disabled:opacity-50 font-medium transition"
-        title="Turn this mesh into an articulated, print-in-place toy (~1-20s)"
+        title="Transforma a malha num brinquedo articulado, impresso já montado (~1-20s)"
       >
-        {busy ? 'Flexifying… (~1-20s)' : '🦴 Make it flexi'}
+        {busy ? 'Flexibilizando… (~1-20s)' : '🦴 Tornar flexível'}
       </button>
       {error && (
         <div className="bg-red-950/80 backdrop-blur border border-red-800 text-red-100 rounded-lg px-3 py-2 text-xs max-w-xs whitespace-pre-wrap">

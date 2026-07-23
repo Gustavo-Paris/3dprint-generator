@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { extractApiError } from '@/lib/http/client-error'
 
 type SliceMeta = {
   print_time_min: number | null
@@ -21,9 +22,16 @@ export function fmtFilamentM(v: number | null | undefined): string {
 export default function SliceButton({
   iterationId,
   stl,
+  paintState,
+  multicolor,
 }: {
   iterationId: string | null
   stl: Uint8Array | null
+  /** Manual-paint session state: 'dirty' = unsaved strokes (warn before slicing,
+   *  they won't be included), 'saved' = persisted via /api/paint-save. */
+  paintState?: 'dirty' | 'saved' | null
+  /** Mesh in the viewer has 2+ extruders — slicing flattens to mono (estimate). */
+  multicolor?: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<SliceResponse | null>(null)
@@ -72,7 +80,7 @@ export default function SliceButton({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ iterationId }),
       })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) throw new Error(await extractApiError(res))
       setResult((await res.json()) as SliceResponse)
     } catch (e) {
       setError((e as Error).message)
@@ -111,6 +119,11 @@ export default function SliceButton({
     // this renders in flow so it can never cover sibling controls. On mobile
     // (bottom sheet) it jumps to the front so the primary CTA stays visible.
     <div className="order-first flex flex-col items-end gap-2 lg:order-none">
+      {paintState === 'dirty' && (
+        <div className="bg-amber-950/80 backdrop-blur border border-amber-800 text-amber-100 rounded-lg px-3 py-2 text-xs max-w-xs">
+          Pintura não salva — salve antes de fatiar para incluí-la.
+        </div>
+      )}
       <button
         onClick={onClick}
         disabled={busy || slicerOk === false}
@@ -144,6 +157,11 @@ export default function SliceButton({
             <span className="text-slate-400">Filamento: </span>
             <strong className="text-white">{fmtFilament(result.meta.filament_g)} · {fmtFilamentM(result.meta.filament_m)}</strong>
           </div>
+          {multicolor && (
+            <div className="text-slate-400">
+              Estimativa em 1 cor. Para imprimir multi-cor, use Exportar 3MF.
+            </div>
+          )}
           <button
             onClick={download}
             className="w-full bg-emerald-600 text-white rounded-lg px-3 py-2 min-h-11 hover:bg-emerald-500 transition font-medium"

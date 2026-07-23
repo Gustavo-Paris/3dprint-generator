@@ -1,13 +1,14 @@
 import { auth, signOut } from '@/auth'
 import { isAdminEmail } from '@/env'
 import { db } from '@/db'
-import { projects } from '@/db/schema'
-import { count, desc, eq } from 'drizzle-orm'
+import { projects, iterations } from '@/db/schema'
+import { count, desc, eq, inArray } from 'drizzle-orm'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createProject } from '@/actions/projects'
 import { paginate } from '@/lib/projects/paginate'
 import { Brand, BrandMark } from '@/components/Brand'
+import ProjectCard, { type IterationStatus } from '@/components/ProjectCard'
 
 /** Human, short PT-BR relative time. Server-rendered once, so no hydration drift. */
 function relativeTimePt(date: Date): string {
@@ -23,13 +24,11 @@ function relativeTimePt(date: Date): string {
 
 /** A stable, on-brand cool gradient per project so cards are scannable/distinct
  *  (critique P1-2: cards were all identical) without faking a real thumbnail. */
-function thumbStyle(id: string): React.CSSProperties {
+function thumbGradient(id: string): string {
   let acc = 0
   for (let i = 0; i < id.length; i++) acc = (acc * 31 + id.charCodeAt(i)) >>> 0
   const hue = 205 + (acc % 28) // 205–232: stay in the blue band, no violet drift
-  return {
-    backgroundImage: `linear-gradient(135deg, hsl(${hue} 84% 58%), hsl(${hue + 18} 72% 40%))`,
-  }
+  return `linear-gradient(135deg, hsl(${hue} 84% 58%), hsl(${hue + 18} 72% 40%))`
 }
 
 export default async function Home({
@@ -54,6 +53,31 @@ export default async function Home({
     .orderBy(desc(projects.updatedAt))
     .limit(pg.limit)
     .offset(pg.offset)
+
+  // Card enrichment for the current page only: iteration count + last-iteration
+  // status per project. Two cheap grouped queries over ≤ pg.limit projects.
+  const pageIds = myProjects.map((p) => p.id)
+  const [iterCounts, lastIters] =
+    pageIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          db
+            .select({ projectId: iterations.projectId, n: count() })
+            .from(iterations)
+            .where(inArray(iterations.projectId, pageIds))
+            .groupBy(iterations.projectId),
+          // DISTINCT ON keeps only the newest iteration row per project.
+          db
+            .selectDistinctOn([iterations.projectId], {
+              projectId: iterations.projectId,
+              status: iterations.status,
+            })
+            .from(iterations)
+            .where(inArray(iterations.projectId, pageIds))
+            .orderBy(iterations.projectId, desc(iterations.createdAt)),
+        ])
+  const countByProject = new Map(iterCounts.map((r) => [r.projectId, r.n]))
+  const statusByProject = new Map(lastIters.map((r) => [r.projectId, r.status]))
 
   return (
     <div className="flex min-h-full flex-col bg-slate-50">
@@ -133,25 +157,14 @@ export default async function Home({
           <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {myProjects.map((p) => (
               <li key={p.id}>
-                <Link
-                  href={`/projects/${p.id}`}
-                  className="group block overflow-hidden rounded-xl border border-slate-200 bg-white shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-card"
-                >
-                  <div
-                    className="relative flex h-28 items-center justify-center overflow-hidden"
-                    style={thumbStyle(p.id)}
-                  >
-                    <BrandMark className="h-9 w-9 opacity-95 drop-shadow-sm transition-transform duration-200 group-hover:scale-110" />
-                  </div>
-                  <div className="p-4">
-                    <div className="truncate font-medium text-slate-900 transition-colors group-hover:text-brand-700">
-                      {p.title}
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      Atualizado {relativeTimePt(p.updatedAt)}
-                    </div>
-                  </div>
-                </Link>
+                <ProjectCard
+                  id={p.id}
+                  title={p.title}
+                  relTime={relativeTimePt(p.updatedAt)}
+                  iterCount={countByProject.get(p.id) ?? 0}
+                  lastStatus={(statusByProject.get(p.id) ?? null) as IterationStatus | null}
+                  gradient={thumbGradient(p.id)}
+                />
               </li>
             ))}
           </ul>

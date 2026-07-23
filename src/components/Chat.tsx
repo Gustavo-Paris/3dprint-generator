@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { resultLabel } from '@/lib/chat/result-label'
+import { extractApiError } from '@/lib/http/client-error'
 import { BrandMark } from '@/components/Brand'
 
 /** Starter prompts shown in the empty chat so the workspace isn't a blank panel
@@ -11,6 +12,21 @@ const EXAMPLE_PROMPTS = [
   'Disco ⌀50mm com logo gravado',
   'Chaveiro retangular 40×20mm',
 ] as const
+
+/** When the project already has an imported base mesh, from-scratch prompts are
+ *  misleading — the message will EDIT the base. Show edit examples instead
+ *  (audit P1: imported ops are undiscoverable). */
+const EDIT_PROMPTS = [
+  'aumenta 20%',
+  'furo de 5mm no topo',
+  'texto "MARCI" em relevo na frente',
+  'pinta o topo de verde',
+] as const
+
+/** Empty-chat example chips — edit examples when an imported base exists. */
+export function examplePromptsFor(hasImportedBase: boolean): readonly string[] {
+  return hasImportedBase ? EDIT_PROMPTS : EXAMPLE_PROMPTS
+}
 
 /** One-line human summary of a Design JSON for the chat header. */
 function designSummary(design: unknown): string {
@@ -62,6 +78,48 @@ function designSummary(design: unknown): string {
   return parts.join(' · ')
 }
 
+/** Human-readable lines for the "Como interpretamos seu pedido" disclosure.
+ *  The raw Design JSON only renders in dev (inside a nested <details>). */
+export function designDetails(design: unknown): string[] {
+  if (!design || typeof design !== 'object') return []
+  const d = design as Record<string, unknown>
+  const kind = String(d.kind ?? '')
+  const KIND_LABELS: Record<string, string> = {
+    hollow_cylinder: 'Cilindro vazado',
+    flat_plate: 'Placa',
+    disc: 'Disco',
+    box: 'Caixa',
+    imported: 'Malha importada (edições sobre o arquivo)',
+    freeform: 'Forma livre (gerada por IA)',
+    flexified: 'Brinquedo articulado',
+  }
+  const lines: string[] = [`Tipo: ${KIND_LABELS[kind] ?? (kind || 'desconhecido')}`]
+  if (kind === 'hollow_cylinder') {
+    lines.push(`Dimensões: ⌀ interno ${d.insideDiameterMm}mm × altura ${d.heightMm}mm`)
+  } else if (kind === 'flat_plate') {
+    lines.push(`Dimensões: ${d.widthMm}×${d.heightMm}×${d.thicknessMm}mm`)
+  } else if (kind === 'disc') {
+    lines.push(`Dimensões: ⌀${d.diameterMm}mm × ${d.thicknessMm}mm`)
+  } else if (kind === 'box') {
+    lines.push(`Dimensões: ${d.widthMm}×${d.depthMm}×${d.heightMm}mm`)
+  } else if (kind === 'imported') {
+    const edits = Array.isArray(d.edits) ? d.edits.length : 0
+    if (edits > 0) lines.push(`Edições aplicadas: ${edits}`)
+  }
+  const logo = d.logo as Record<string, unknown> | undefined
+  if (logo) {
+    const treatment = String(logo.treatment ?? '')
+    const label =
+      treatment === 'engraved' ? 'gravado'
+      : treatment === 'embossed' ? 'em relevo'
+      : treatment === 'through_cut' ? 'vazado'
+      : treatment
+    const ratio = Number(logo.sizeRatio ?? 0)
+    lines.push(`Logo: ${label}${ratio > 0 ? ` (~${(ratio * 100).toFixed(0)}% da face)` : ''}`)
+  }
+  return lines
+}
+
 /** Badge from design kind — freeform (Meshy), imported mesh, or parametric JSCAD. */
 export function badgeFor(design: unknown): 'meshy' | 'imported' | 'jscad' {
   const kind = (design as { kind?: string } | undefined)?.kind
@@ -76,12 +134,28 @@ type Msg = {
   iterationId?: string
   strategy?: 'parametric' | 'generative'
   imageUrl?: string
+  /** Iteration status (set by history hydration). Ready/sliced rows become
+   *  navigable versions ("Ver esta versão"). */
+  status?: 'generating' | 'ready' | 'failed' | 'sliced'
   /** Parsed Design JSON returned by the LLM (shown collapsible in the chat). */
   design?: unknown
   /** Sanity clamps applied to the LLM's output before geometry was built. */
   designAdjustments?: Array<{ field: string; from: number; to: number }>
   /** Edits the backend skipped or failed (e.g. logo couldn't be applied). */
   warnings?: Array<{ opIndex: number; op: string; reason: string }>
+}
+
+/** True for assistant messages that map to a viewable version: they carry an
+ *  iterationId and the row produced output (ready/sliced). Live-session
+ *  messages have no `status`, so only history-hydrated rows qualify. */
+export function isViewableVersion(
+  m: Pick<Msg, 'role' | 'iterationId' | 'status'>,
+): boolean {
+  return (
+    m.role === 'assistant' &&
+    !!m.iterationId &&
+    (m.status === 'ready' || m.status === 'sliced')
+  )
 }
 
 export type ChatResult =
@@ -104,6 +178,9 @@ export default function Chat({
   onResult,
   onMeshUploaded,
   onAttachedImageChange,
+  onDiscardMesh,
+  onViewIteration,
+  hasImportedBase,
   pendingMeshUrl,
   pendingPreviews,
 }: {
@@ -120,6 +197,16 @@ export default function Chat({
   /** Notifies parent when the attached reference image URL changes (upload/clear).
    *  Used by click-to-place logo so /api/generate gets imageUrl without a chat send. */
   onAttachedImageChange?: (url: string | null) => void
+  /** Discards the pending .3mf (clears pendingMeshUrl/pendingPreviews upstream)
+   *  — the exit door from imported mode (audit P1: "armadilha sem saída"). */
+  onDiscardMesh?: () => void
+  /** Called when the user clicks "Ver esta versão" on a ready/sliced history
+   *  message. ProjectWorkspace loads that iteration's mesh into the viewer. */
+  onViewIteration?: (iterationId: string) => void
+  /** True when the project has an imported base (pending upload OR history).
+   *  Switches the empty-chat chips to edit examples and shows the
+   *  "Nova peça do zero" per-message toggle. */
+  hasImportedBase?: boolean
   /** Active imported mesh URL (set by ProjectWorkspace after a .3mf upload). */
   pendingMeshUrl?: string | null
   /** 4-angle previews captured by the viewer (set by ProjectWorkspace). */
@@ -141,6 +228,9 @@ export default function Chat({
       ? { url: initialAttachedImageUrl, file: null, carried: true }
       : null,
   )
+  /** "Nova peça do zero" — when on, the next message ignores the imported base
+   *  (server skips the history mesh fallback; nothing pending is forwarded). */
+  const [startFresh, setStartFresh] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -177,7 +267,7 @@ export default function Chat({
 
   async function send(opts?: { designOverride?: unknown; messageOverride?: string }) {
     if (!opts?.designOverride && (!draft.trim() && !attachedImage) || busy) return
-    const userText = opts?.messageOverride ?? (draft.trim() || (attachedImage ? '(image only)' : ''))
+    const userText = opts?.messageOverride ?? (draft.trim() || (attachedImage ? '(apenas imagem)' : ''))
     // Always forward the attached image URL (including carried-from-history) so
     // paint_from_image can load the reference bytes on multi-colour turns.
     const imgUrl = attachedImage?.url
@@ -197,12 +287,15 @@ export default function Chat({
           projectId,
           message: userText,
           imageUrl: imgUrl,
-          meshUrl: pendingMeshUrl ?? undefined,
-          previewDataUrls: pendingPreviews ?? undefined,
+          // "Nova peça do zero": don't forward the pending mesh and tell the
+          // server to skip its imported-base history fallback.
+          meshUrl: startFresh ? undefined : (pendingMeshUrl ?? undefined),
+          previewDataUrls: startFresh ? undefined : (pendingPreviews ?? undefined),
+          ignoreImportedBase: startFresh || undefined,
           designOverride: opts?.designOverride,
         }),
       })
-      if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`)
+      if (!res.ok) throw new Error(await extractApiError(res))
       const body = (await res.json()) as {
         strategy: 'generative'
         iteration_id: string
@@ -257,7 +350,7 @@ export default function Chat({
               Descreva o que quer imprimir ou anexe uma imagem. Comece com um exemplo:
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
-              {EXAMPLE_PROMPTS.map((ex) => (
+              {examplePromptsFor(!!hasImportedBase).map((ex) => (
                 <button
                   key={ex}
                   type="button"
@@ -300,6 +393,16 @@ export default function Chat({
                     : 'paramétrico'}
               </span>
             )}
+            {onViewIteration && isViewableVersion(m) && (
+              <button
+                type="button"
+                onClick={() => onViewIteration(m.iterationId!)}
+                className="ml-2 align-top text-[10px] uppercase tracking-wide text-slate-400 underline decoration-dotted underline-offset-2 transition hover:text-brand-300"
+                title="Mostrar esta versão no visualizador 3D"
+              >
+                Ver esta versão
+              </button>
+            )}
             {m.role === 'assistant' && m.designAdjustments && m.designAdjustments.length > 0 && (
               <div className="mt-2 max-w-[90%] border-l-2 border-orange-500 bg-orange-950/40 px-3 py-2 text-left text-[11px]">
                 <div className="uppercase tracking-wide text-orange-300 font-semibold mb-1">
@@ -333,9 +436,21 @@ export default function Chat({
                 <summary className="text-[10px] uppercase tracking-wide text-brand-300 font-semibold cursor-pointer select-none min-h-11 flex items-center">
                   Como interpretamos seu pedido — {designSummary(m.design)}
                 </summary>
-                <pre className="mt-1.5 text-[11px] text-slate-300 whitespace-pre-wrap overflow-x-auto">
-                  {JSON.stringify(m.design, null, 2)}
-                </pre>
+                <ul className="mt-1.5 space-y-0.5 text-[11px] text-slate-300">
+                  {designDetails(m.design).map((line, k) => (
+                    <li key={k}>{line}</li>
+                  ))}
+                </ul>
+                {process.env.NODE_ENV === 'development' && (
+                  <details className="mt-1.5">
+                    <summary className="text-[10px] text-slate-500 cursor-pointer select-none">
+                      JSON (dev)
+                    </summary>
+                    <pre className="mt-1 text-[11px] text-slate-300 whitespace-pre-wrap overflow-x-auto">
+                      {JSON.stringify(m.design, null, 2)}
+                    </pre>
+                  </details>
+                )}
                 <div className="mt-1.5 flex items-center justify-between gap-2">
                   <div className="text-[10px] text-slate-400">
                     Pra iterar: peça mudanças concretas (&ldquo;logo maior&rdquo;, &ldquo;vazada&rdquo;).
@@ -386,7 +501,7 @@ export default function Chat({
                         return
                       }
                       setEditingDesign(null)
-                      send({ designOverride: parsed, messageOverride: 'edited design directly' })
+                      send({ designOverride: parsed, messageOverride: 'Parâmetros ajustados manualmente' })
                     }}
                     className="text-[11px] bg-brand-600 text-white rounded px-3 py-1 hover:bg-brand-700 disabled:opacity-50"
                   >
@@ -419,6 +534,15 @@ export default function Chat({
               ? '.3mf carregado — previews prontos, pode enviar uma mensagem'
               : '.3mf carregado — aguardando previews do viewer…'}
           </span>
+          <button
+            type="button"
+            onClick={() => onDiscardMesh?.()}
+            className="text-violet-300 hover:text-red-400 text-xs px-2 min-h-11 whitespace-nowrap"
+            aria-label="Descartar malha"
+            title="Descartar a malha importada e voltar a criar do zero"
+          >
+            ✕ Descartar malha
+          </button>
         </div>
       )}
 
@@ -436,8 +560,8 @@ export default function Chat({
           />
           <span className="text-xs text-slate-300 flex-1 truncate">
             {attachedImage.carried
-              ? '↻ imagem de referência — seu texto modifica via text-to-3D'
-              : `🆕 upload novo — vai regenerar do zero via image-to-3D (texto será ignorado)`}
+              ? '↻ imagem de referência — usada como logo ou base nas próximas edições'
+              : '🆕 imagem anexada — vira logo na peça ou base do modelo 3D, conforme o seu pedido'}
           </span>
           <button
             onClick={() => setAttachedImage(null)}
@@ -465,8 +589,19 @@ export default function Chat({
         </div>
       )}
 
+      {hasImportedBase && (
+        <label className="px-4 pt-2 flex items-center gap-2 text-[11px] text-slate-400 bg-slate-900 border-t border-slate-800 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={startFresh}
+            onChange={(e) => setStartFresh(e.target.checked)}
+            className="accent-brand-600"
+          />
+          Nova peça do zero — ignorar a malha importada nesta mensagem
+        </label>
+      )}
       <form
-        className="p-4 border-t border-slate-800 flex gap-2 bg-slate-900"
+        className={`p-4 flex gap-2 bg-slate-900 ${hasImportedBase ? '' : 'border-t border-slate-800'}`}
         onSubmit={(e) => {
           e.preventDefault()
           send()

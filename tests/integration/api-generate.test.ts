@@ -55,4 +55,62 @@ describe('/api/generate (Design → parametric generator)', () => {
     expect(rows[0].status).toBe('ready')
     expect(rows[0].meshBlobUrl).toBeTruthy()
   })
+
+  it('keeps a custom project title untouched (no auto-title)', async () => {
+    const [after] = await db.select().from(projects).where(eq(projects.id, projectId))
+    expect(after.title).toBe('t')
+  })
+
+  it('previousDesign continuity: quick modifier iterates on a design from a SLICED row', async () => {
+    // Slicing flips 'ready' → 'sliced' while keeping validationReport. The
+    // iterate path must still find that design (audit: "Fatiar quebra a
+    // continuidade").
+    const [p] = await db
+      .insert(projects)
+      .values({ userId: testUserId, title: 'sliced-continuity' })
+      .returning()
+    await db.insert(iterations).values({
+      projectId: p.id,
+      userMessage: 'a 40mm flat square',
+      status: 'sliced',
+      strategy: 'generative',
+      validationReport: {
+        kind: 'flat_plate', widthMm: 40, heightMm: 40, thicknessMm: 4, cornerRadiusMm: 2,
+      },
+    })
+
+    const { POST } = await import('@/app/api/generate/route')
+    const res = await POST(
+      new Request('http://localhost/api/generate', {
+        method: 'POST',
+        body: JSON.stringify({ projectId: p.id, message: 'mais alta' }),
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // 40 × 1.2 = 48 proves the deterministic quick modifier saw the sliced
+    // row's design. If previousDesign were null (old behavior), the mocked
+    // LLM would have answered and heightMm would still be 40.
+    expect(body.design.kind).toBe('flat_plate')
+    expect(body.design.heightMm).toBe(48)
+  })
+
+  it('auto-titles a default-titled project after the first ready iteration', async () => {
+    const [p] = await db
+      .insert(projects)
+      .values({ userId: testUserId, title: 'Projeto sem título' })
+      .returning()
+
+    const { POST } = await import('@/app/api/generate/route')
+    const res = await POST(
+      new Request('http://localhost/api/generate', {
+        method: 'POST',
+        body: JSON.stringify({ projectId: p.id, message: 'porta-canetas hexagonal azul' }),
+      }),
+    )
+    expect(res.status).toBe(200)
+
+    const [after] = await db.select().from(projects).where(eq(projects.id, p.id))
+    expect(after.title).toBe('porta-canetas hexagonal azul')
+  })
 })

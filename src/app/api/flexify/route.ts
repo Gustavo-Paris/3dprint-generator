@@ -157,26 +157,37 @@ export async function POST(req: Request) {
     return apiError(500, 'flexify_failed', 'Falha ao processar a malha.', { iteration_id: iteration.id })
   }
 
-  const meshUrlOut = await persistMesh(bytes, session.user.id, projectId, iteration.id)
+  // Guard the tail: persistMesh + the finalize updates run after the flexify
+  // try/catch, so a throw here would leave the row 'generating' forever
+  // (mirrors the tail guard in /api/generate).
+  try {
+    const meshUrlOut = await persistMesh(bytes, session.user.id, projectId, iteration.id)
 
-  await db.update(iterations)
-    .set({
-      status: 'ready',
-      meshBlobUrl: meshUrlOut,
-      validationReport: { kind: 'flexified', ...report },
-      strategy: 'flexified',
+    await db.update(iterations)
+      .set({
+        status: 'ready',
+        meshBlobUrl: meshUrlOut,
+        validationReport: { kind: 'flexified', ...report },
+        strategy: 'flexified',
+      })
+      .where(eq(iterations.id, iteration.id))
+    await db.update(projects)
+      .set({ currentIterationId: iteration.id, updatedAt: new Date() })
+      .where(eq(projects.id, projectId))
+
+    return Response.json({
+      strategy: 'generative',
+      iteration_id: iteration.id,
+      mesh_url: meshUrlOut,
+      mesh_base64: null,
+      report,
     })
-    .where(eq(iterations.id, iteration.id))
-  await db.update(projects)
-    .set({ currentIterationId: iteration.id, updatedAt: new Date() })
-    .where(eq(projects.id, projectId))
-
-  return Response.json({
-    strategy: 'generative',
-    iteration_id: iteration.id,
-    mesh_url: meshUrlOut,
-    mesh_base64: null,
-    report,
-  })
+  } catch (err) {
+    log.error('persist/finalize failed', err, { projectId, iterationId: iteration.id })
+    await db.update(iterations)
+      .set({ status: 'failed', error: `persist failed: ${(err as Error).message}` })
+      .where(eq(iterations.id, iteration.id))
+    return apiError(500, 'persist_failed', 'Não foi possível salvar a peça gerada.', { iteration_id: iteration.id })
+  }
 }
 

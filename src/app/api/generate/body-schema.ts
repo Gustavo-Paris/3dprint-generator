@@ -18,6 +18,10 @@ export const Body = z.object({
   imageUrl: z.string().optional(),
   /** Fresh .3mf upload URL or relative path — triggers the imported-mesh edit branch. */
   meshUrl: z.string().min(1).optional(),
+  /** "Nova peça do zero": skip the imported-base fallback from project history
+   *  so this message generates a fresh design instead of editing the base.
+   *  A fresh `meshUrl` in the same request still wins (explicit beats implicit). */
+  ignoreImportedBase: z.boolean().optional(),
   /** Client-captured 4-angle PNG previews (data URLs) for the first import request. */
   previewDataUrls: z.object({
     top: z.string().max(MAX_PREVIEW),

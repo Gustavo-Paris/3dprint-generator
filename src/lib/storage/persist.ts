@@ -38,14 +38,15 @@ export async function persistMesh(
   return `/meshes/${iterationId}.${ext}`
 }
 
-/** Delete a persisted mesh. http(s) → Vercel blob; '/meshes/...' → local file.
+/** Delete a persisted asset (mesh, sliced 3MF, uploaded image, or imported base).
+ *  http(s) → Vercel blob; local '/meshes/...' or '/uploads/...' → public file.
  *  Swallows "already gone" so the orphan-sweep stays idempotent. */
 export async function delMesh(meshUrl: string): Promise<void> {
   if (meshUrl.startsWith('http')) {
     await del(meshUrl, { token: env.BLOB_READ_WRITE_TOKEN })
     return
   }
-  if (meshUrl.startsWith('/meshes/')) {
+  if (meshUrl.startsWith('/meshes/') || meshUrl.startsWith('/uploads/')) {
     const abs = join(process.cwd(), 'public', meshUrl.replace(/^\//, ''))
     await unlink(abs).catch((e: NodeJS.ErrnoException) => {
       if (e.code !== 'ENOENT') throw e

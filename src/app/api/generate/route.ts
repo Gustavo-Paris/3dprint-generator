@@ -20,7 +20,9 @@ import {
 import { getPrinter, buildProjectSettings } from '@/lib/print-profile'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
+import { generateHistoryColumns } from '@/db/history-columns'
 import { designKindToStrategy } from '@/db/strategy'
+import { deriveProjectTitle, DEFAULT_PROJECT_TITLE } from '@/lib/projects/derive-title'
 import { reapStuckIterations } from '@/lib/db/reap-stuck-iterations'
 import { stripCacheKeys } from '@/lib/design/strip-cache-keys'
 import { readCachedDesign } from '@/lib/storage/validation-report'
@@ -32,6 +34,12 @@ import { tryQuickModify } from '@/lib/design/quick-modifier'
 import type { Design } from '@/lib/design/schema'
 import { Body } from './body-schema'
 import type { PreviewBundle } from '@/lib/design/parse-import'
+import {
+  STUB_PREVIEW,
+  STUB_PREVIEW_BUNDLE,
+  isStubPreviewBundle,
+  readPreviewBundle,
+} from '@/lib/design/preview-bundle'
 import type { SemanticFace } from '@/lib/import/types'
 import { serialize3mf } from '@/lib/3mf/serialize-3mf'
 import { generateMesh, generateMeshFromImage } from '@/lib/meshy/client'
@@ -40,7 +48,7 @@ import { assertUrlIsPublic } from '@/lib/http/is-public-url'
 import { isOwnMeshUrl } from '@/lib/http/owns-mesh-url'
 import { persistMesh } from '@/lib/storage/persist'
 import { createRequestLogger } from '@/lib/log'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { readFile, realpath } from 'node:fs/promises'
 import { join, sep } from 'node:path'
 
@@ -61,7 +69,7 @@ export async function POST(req: Request) {
   if (!parsed.success) return apiError(400, 'invalid_body', 'Requisição inválida.')
   const {
     projectId, message, imageUrl, meshUrl: freshMeshUrl, previewDataUrls: freshPreviews,
-    designOverride, logoPlacement, paintPlacement,
+    ignoreImportedBase, designOverride, logoPlacement, paintPlacement,
   } = parsed.data
 
   const [project] = await db
@@ -78,8 +86,12 @@ export async function POST(req: Request) {
   }
 
   // Resolve image: fresh upload wins; else most recent image in this project.
+  // Lean projection: `_previews` (base64 PNGs, ~806KB/row) is stripped at the
+  // SQL level — the LLM path re-fetches the newest real bundle in a targeted
+  // single-row query below. `_faces` stays (cached segmentation reused on
+  // iterate).
   const history = await db
-    .select()
+    .select(generateHistoryColumns)
     .from(iterations)
     .where(eq(iterations.projectId, projectId))
     .orderBy(asc(iterations.createdAt))
@@ -167,9 +179,12 @@ export async function POST(req: Request) {
   // so follow-up paints ("tenta de novo") work without re-capturing 4 views.
   let effectiveMeshUrl: string | null = freshMeshUrl ?? null
   let cachedFaces: SemanticFace[] | null = null
-  let cachedPreviews: PreviewBundle | null = null
 
-  const lastImported = [...history].reverse().find((h) => {
+  // "Nova peça do zero": the client asked to ignore the imported base — skip the
+  // history fallback entirely (an explicit fresh meshUrl in the SAME request
+  // still wins above). Without this flag a project with an imported base can
+  // never generate from scratch again (audit P1: no exit from imported mode).
+  const lastImported = ignoreImportedBase ? undefined : [...history].reverse().find((h) => {
     const vr = readCachedDesign(h.validationReport)
     return vr?.kind === 'imported' && !!vr.baseMeshUrl
   })
@@ -178,19 +193,35 @@ export async function POST(req: Request) {
     if (vr?.kind === 'imported') {
       if (!effectiveMeshUrl) effectiveMeshUrl = vr.baseMeshUrl
       cachedFaces = (vr._faces ?? null) as SemanticFace[] | null
-      cachedPreviews = (vr._previews ?? null) as PreviewBundle | null
     }
   }
 
-  // 1×1 PNG — enough for paint_from_image / paint_brush (they ignore previews).
-  // Real multi-view still used when the client or cache provides them (LLM path).
-  const STUB_PREVIEW =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
-  const stubPreviews: PreviewBundle = {
-    top: STUB_PREVIEW,
-    front: STUB_PREVIEW,
-    right: STUB_PREVIEW,
-    iso: STUB_PREVIEW,
+  // Post-reload LLM edits must not run vision-blind: `_previews` is stripped
+  // from the bulk history read (prompt-size), so re-fetch ONLY the newest REAL
+  // preview bundle in a targeted single-row query (legacy stub bundles are
+  // filtered in SQL). Skipped on the no-LLM paths (paint/logo placement,
+  // designOverride) — they ignore previews entirely.
+  let cachedPreviews: PreviewBundle | null = null
+  if (!freshPreviews && lastImported && !paintPlacement && !logoPlacement && !designOverride) {
+    try {
+      const [prevRow] = await db
+        .select({ previews: sql<unknown>`${iterations.validationReport} -> '_previews'` })
+        .from(iterations)
+        .where(
+          and(
+            eq(iterations.projectId, projectId),
+            sql`${iterations.validationReport} -> '_previews' ->> 'iso' <> ${STUB_PREVIEW}`,
+          ),
+        )
+        .orderBy(desc(iterations.createdAt))
+        .limit(1)
+      cachedPreviews = prevRow ? readPreviewBundle(prevRow.previews) : null
+    } catch (err) {
+      // Non-fatal: worst case the LLM sees the stub bundle (old behavior).
+      log.error('cached previews fetch failed (continuing with stub)', err, {
+        iterationId: iteration.id,
+      })
+    }
   }
 
   let importContext: Parameters<typeof parseDesign>[0]['importContext'] | undefined
@@ -201,7 +232,7 @@ export async function POST(req: Request) {
 
       const base = await loadBaseMeshFromUrl(effectiveMeshUrl)
       const faces = cachedFaces ?? segmentFaces(base)
-      const previews = freshPreviews ?? cachedPreviews ?? stubPreviews
+      const previews = freshPreviews ?? cachedPreviews ?? STUB_PREVIEW_BUNDLE
       importContext = {
         baseMeshUrl: effectiveMeshUrl,
         faces,
@@ -220,9 +251,18 @@ export async function POST(req: Request) {
   // LLM → structured Design. Pull the most recent successfully-built Design
   // from this project's history (stored in `validationReport` jsonb) so the
   // LLM can iterate on it instead of re-parsing from scratch.
+  // 'sliced' rows carry a design too (POST /api/slice flips 'ready' → 'sliced'
+  // keeping validationReport) — excluding them broke continuity after slicing.
+  // With ignoreImportedBase, imported designs must not become previousDesign
+  // either — the LLM would echo kind:'imported' + baseMeshUrl and the generator
+  // would reload the base, defeating the "nova peça do zero" toggle.
   const lastReadyWithDesign = [...history]
     .reverse()
-    .find((h) => h.status === 'ready' && h.validationReport)
+    .find((h) =>
+      (h.status === 'ready' || h.status === 'sliced') &&
+      h.validationReport &&
+      !(ignoreImportedBase && readCachedDesign(h.validationReport)?.kind === 'imported'),
+    )
   // Strip `_`-prefixed cache keys (_faces/_previews — base64 PNGs up to ~806KB)
   // so they never get stringified into the LLM prompt.
   const previousDesign = stripCacheKeys(lastReadyWithDesign?.validationReport ?? null) as
@@ -356,9 +396,20 @@ export async function POST(req: Request) {
         .where(eq(iterations.id, iteration.id))
       return apiError(503, 'freeform_unavailable', 'A geração freeform não está configurada.', { iteration_id: iteration.id })
     }
-    const meshy = design.sourceImageUrl
-      ? await generateMeshFromImage({ imageUrl: design.sourceImageUrl, apiKey })
-      : await generateMesh({ prompt: design.prompt, apiKey })
+    // Network/transport failures THROW (unlike Meshy HTTP errors, which come
+    // back as { ok: false }) — without this guard the row stayed 'generating'.
+    let meshy: Awaited<ReturnType<typeof generateMesh>>
+    try {
+      meshy = design.sourceImageUrl
+        ? await generateMeshFromImage({ imageUrl: design.sourceImageUrl, apiKey })
+        : await generateMesh({ prompt: design.prompt, apiKey })
+    } catch (err) {
+      log.error('meshy threw', err, { iterationId: iteration.id })
+      await db.update(iterations)
+        .set({ status: 'failed', error: `meshy failed: ${(err as Error).message}` })
+        .where(eq(iterations.id, iteration.id))
+      return apiError(502, 'meshy_failed', 'A geração freeform falhou.', { iteration_id: iteration.id })
+    }
     if (!meshy.ok) {
       log.error('meshy failed', new Error(meshy.error), { iterationId: iteration.id })
       await db.update(iterations)
@@ -416,7 +467,11 @@ export async function POST(req: Request) {
         ? {
             ...(design as object),
             _faces: importContext.faces,
-            _previews: importContext.previewDataUrls,
+            // Never cache the 1×1 stub bundle — the cached-previews re-fetch
+            // above must only ever find REAL captures to carry forward.
+            ...(isStubPreviewBundle(importContext.previewDataUrls)
+              ? {}
+              : { _previews: importContext.previewDataUrls }),
             ...(paintPalette ? { _paintPalette: paintPalette } : {}),
           }
         : {
@@ -436,6 +491,21 @@ export async function POST(req: Request) {
     await db.update(projects)
       .set({ currentIterationId: iteration.id, updatedAt: new Date() })
       .where(eq(projects.id, projectId))
+
+    // Auto-title: first successful build of a still-default-titled project
+    // names it after the prompt. Best-effort — never fails the response.
+    if (project.title === DEFAULT_PROJECT_TITLE) {
+      try {
+        const derived = deriveProjectTitle(message)
+        if (derived !== DEFAULT_PROJECT_TITLE) {
+          await db.update(projects)
+            .set({ title: derived })
+            .where(eq(projects.id, projectId))
+        }
+      } catch (err) {
+        log.error('auto-title failed (non-fatal)', err, { projectId })
+      }
+    }
 
     return Response.json({
       strategy: 'generative',

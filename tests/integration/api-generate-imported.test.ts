@@ -26,19 +26,27 @@ vi.mock('@/auth', () => ({
 const mockProject = { id: '550e8400-e29b-41d4-a716-446655440000', userId: 'test-user-id', title: 'test' }
 const mockIteration = { id: 'iter-imported-1', projectId: mockProject.id }
 
-// A mini chainable mock factory.
+// A mini chainable mock factory. `where().orderBy()` must serve BOTH shapes:
+// awaited directly (history read) and chained into `.limit()` (the targeted
+// cached-previews single-row query) — hence the thenable with a limit method.
 const makeSelectChain = (result: unknown[]) => ({
   from: vi.fn().mockReturnValue({
     where: vi.fn().mockReturnValue({
       limit: vi.fn().mockResolvedValue(result),
-      orderBy: vi.fn().mockResolvedValue(result),
+      orderBy: vi.fn().mockReturnValue(
+        Object.assign(Promise.resolve(result), {
+          limit: vi.fn().mockResolvedValue(result),
+        }),
+      ),
     }),
     orderBy: vi.fn().mockResolvedValue(result),
   }),
 })
 
-// `select` is called twice. First call → project (non-empty), second call → iterations (empty).
+// `select` is called twice. First call → project (non-empty), second call → iterations (history).
 let selectCallCount = 0
+// Per-test injectable iteration history (reset to [] before each test).
+let mockHistory: unknown[] = []
 vi.mock('@/db', () => ({
   db: {
     select: vi.fn(() => {
@@ -48,7 +56,7 @@ vi.mock('@/db', () => ({
         return makeSelectChain([mockProject])
       }
       // Iterations history query
-      return makeSelectChain([])
+      return makeSelectChain(mockHistory)
     }),
     insert: vi.fn(() => ({
       values: vi.fn(() => ({
@@ -106,6 +114,7 @@ describe('POST /api/generate (imported .3mf flow)', () => {
   it('returns 200, strategy=generative, design.kind=imported, bbox ~15mm (half of 30mm cube)', async () => {
     // Reset call counter before each test so mocks are deterministic
     selectCallCount = 0
+    mockHistory = []
 
     const { POST } = await import('@/app/api/generate/route')
     const res = await POST(
@@ -138,6 +147,7 @@ describe('POST /api/generate (imported .3mf flow)', () => {
   // (paint ops ignore previews; the LLM path still gets real ones when sent).
   it('succeeds with stub previews when meshUrl provided but no previews', async () => {
     selectCallCount = 0
+    mockHistory = []
 
     const { POST } = await import('@/app/api/generate/route')
     const res = await POST(
@@ -156,5 +166,55 @@ describe('POST /api/generate (imported .3mf flow)', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.design.kind).toBe('imported')
+  })
+
+  // Continuity after slicing: POST /api/slice flips 'ready' → 'sliced' while
+  // keeping validationReport. The iterate path must still pick that design up
+  // as previousDesign (audit: "Fatiar quebra a continuidade").
+  it('feeds a SLICED row\'s design to the LLM as previousDesign', async () => {
+    selectCallCount = 0
+    mockHistory = [
+      {
+        id: 'iter-sliced-prev',
+        projectId: mockProject.id,
+        userMessage: 'import the cube',
+        imageBlobUrl: null,
+        imageDescription: null,
+        meshBlobUrl: 'https://store1.public.blob.vercel-storage.com/test-user-id/x/prev.3mf',
+        status: 'sliced',
+        createdAt: new Date(),
+        validationReport: {
+          kind: 'imported',
+          baseMeshUrl: 'http://mock/cube.3mf',
+          edits: [{ op: 'scale', factor: 0.25 }],
+        },
+      },
+    ]
+
+    const { generateText } = await import('ai')
+    vi.mocked(generateText).mockClear()
+
+    const { POST } = await import('@/app/api/generate/route')
+    const res = await POST(
+      new Request('http://localhost/api/generate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          projectId: '550e8400-e29b-41d4-a716-446655440000',
+          message: 'scale it to half size',
+          // No meshUrl — the base mesh must come from the sliced imported row.
+        }),
+      }),
+    )
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.design.kind).toBe('imported')
+
+    // The LLM prompt embeds JSON.stringify(previousDesign) — the distinctive
+    // factor 0.25 only exists on the sliced row, so its presence proves the
+    // previousDesign lookup now includes status === 'sliced'.
+    const promptText = JSON.stringify(vi.mocked(generateText).mock.calls)
+    expect(promptText).toContain('0.25')
   })
 })

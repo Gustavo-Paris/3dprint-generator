@@ -35,9 +35,9 @@ export default function DownloadStlButton({
     <button
       onClick={download}
       className="bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm shadow-soft hover:bg-slate-800 font-medium transition"
-      title={is3mf ? 'Download raw 3MF for your own slicer' : 'Download raw STL for your own slicer'}
+      title={is3mf ? 'Baixa o 3MF bruto para fatiar no seu próprio slicer' : 'Baixa o STL bruto para fatiar no seu próprio slicer'}
     >
-      {is3mf ? 'Download 3MF (Multi-Color)' : 'Download STL'}
+      {is3mf ? 'Baixar 3MF multi-cor' : 'Baixar STL'}
     </button>
   )
 }

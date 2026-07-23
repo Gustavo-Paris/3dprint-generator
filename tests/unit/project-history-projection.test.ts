@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { historyColumns } from '@/db/history-columns'
+import { historyColumns, generateHistoryColumns } from '@/db/history-columns'
 import { iterations } from '@/db/schema'
 
 describe('project history projection', () => {
@@ -25,5 +25,36 @@ describe('project history projection', () => {
 
   it('drops the dead parent_iteration_id from list reads', () => {
     expect(historyColumns).not.toHaveProperty('parentIterationId')
+  })
+})
+
+describe('generate-route history projection', () => {
+  it('keeps the columns the generate route reads', () => {
+    for (const k of [
+      'id', 'projectId', 'userMessage', 'imageBlobUrl', 'imageDescription',
+      'meshBlobUrl', 'status', 'createdAt',
+    ]) {
+      expect(generateHistoryColumns).toHaveProperty(k)
+    }
+  })
+
+  it('strips ONLY _previews from validation_report — _faces stays for the segmentation cache', () => {
+    expect(generateHistoryColumns.validationReport).not.toBe(iterations.validationReport)
+    // Inspect the SQL string chunks (column refs are circular — no JSON.stringify):
+    // the expression must subtract '_previews' but NOT '_faces'.
+    const aliased = generateHistoryColumns.validationReport as unknown as {
+      sql: { queryChunks: unknown[] }
+    }
+    const text = aliased.sql.queryChunks
+      .map((c) => (c && typeof c === 'object' && 'value' in c ? String((c as { value: unknown }).value) : ''))
+      .join(' ')
+    expect(text).toContain('_previews')
+    expect(text).not.toContain('_faces')
+  })
+
+  it('leaves heavy/unused columns out (lean read)', () => {
+    for (const k of ['jscadCode', 'slicedMeta', 'slicedBlobUrl', 'error', 'parentIterationId']) {
+      expect(generateHistoryColumns).not.toHaveProperty(k)
+    }
   })
 })

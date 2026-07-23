@@ -18,7 +18,8 @@ describe('deriveProjectTitle', () => {
     expect(out.endsWith('…')).toBe(true)
   })
 
-  it('strips an "(image only)" placeholder prompt', () => {
+  it('strips image-only placeholder prompts (PT-BR current + EN legacy)', () => {
     expect(deriveProjectTitle('(image only)')).toBe('Projeto sem título')
+    expect(deriveProjectTitle('(apenas imagem)')).toBe('Projeto sem título')
   })
 })
