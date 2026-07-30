@@ -81,3 +81,4 @@ public/test-*.stl
 
 # git worktrees (isolated workspaces for parallel implementation)
 .worktrees/
+.playwright-mcp/
