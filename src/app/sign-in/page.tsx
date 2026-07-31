@@ -25,8 +25,12 @@ export default async function SignIn({
           action={async (formData) => {
             'use server'
             try {
+              // Pass ONLY the email — spreading the whole formData leaks
+              // Next's internal $ACTION_* keys into signIn, which breaks the
+              // email extraction in production builds (AccessDenied) while
+              // working in dev. Bug found on the first prod deploy.
               await signIn('resend', {
-                ...Object.fromEntries(formData),
+                email: String(formData.get('email') ?? '').trim().toLowerCase(),
                 redirectTo: '/sign-in?sent=1',
               })
             } catch (e) {
