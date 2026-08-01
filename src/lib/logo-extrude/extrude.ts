@@ -167,9 +167,33 @@ export async function extrudeLogo(opts: LogoExtrudeOptions): Promise<LogoExtrude
   const targetMaxDim = opts.targetMaxDim ?? 60
   const depthMm = opts.depthMm ?? 8
   const cropFraction = opts.cropFraction ?? 1
-  const turdSize = opts.turdSize ?? 8
+  // Step 0: small rasters trace wobbly — potrace fits curves to pixel
+  // staircases, and at logo scale the wobble prints as lumpy stroke edges.
+  // Upscale sub-600px sources (~1200px target) BEFORE thresholding: smooth
+  // interpolation puts edges at subpixel positions, so the later binarize +
+  // trace lands on a far smoother outline. cropBox coordinates are in
+  // original pixels, so cropped calls are left untouched.
+  let upscaleFactor = 1
+  if (!opts.cropBox) {
+    const meta0 = await sharp(opts.imageBuffer).metadata()
+    const maxDim0 = Math.max(meta0.width ?? 0, meta0.height ?? 0)
+    if (maxDim0 > 0 && maxDim0 < 600) {
+      upscaleFactor = Math.ceil(1200 / maxDim0)
+      opts = {
+        ...opts,
+        imageBuffer: await sharp(opts.imageBuffer)
+          .resize({ width: (meta0.width ?? 1) * upscaleFactor, kernel: 'mitchell' })
+          .png()
+          .toBuffer(),
+      }
+    }
+  }
+
+  const turdSize = (opts.turdSize ?? 8) * upscaleFactor * upscaleFactor
   const optTolerance = opts.optTolerance ?? 0.2
-  const fattenPx = Math.max(0, opts.fattenPx ?? 0)
+  // Fatten scales with the upscale so the physical stroke thickening the
+  // callers tuned (nozzle-width driven) stays the same.
+  const fattenPx = Math.max(0, (opts.fattenPx ?? 0) * upscaleFactor)
   const manualThreshold = opts.threshold // undefined = use Otsu
   const mode = opts.mode ?? 'silhouette'
   const forceInvert = opts.forceInvert

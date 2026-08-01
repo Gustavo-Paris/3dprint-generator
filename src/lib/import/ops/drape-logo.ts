@@ -157,6 +157,37 @@ export function drapeLogoPositions(
   const span = 200 // mm — enough for any practical model size
   const out = new Float32Array(logoPositions.length)
 
+  // Prefer a smooth quadric fit of the host patch: raw per-vertex raycasting
+  // transfers every lump of noisy AI-generated surfaces into the logo. The
+  // fit follows planes/cylinders/domes while filtering vertex noise; when it
+  // is unavailable (tiny or multi-surface patch) fall back to raycasting.
+  const quad = fitHostQuadric(hostPositions, center, normal)
+  if (quad) {
+    const ref: [number, number, number] = Math.abs(nz) < 0.9 ? [0, 0, 1] : [1, 0, 0]
+    let tx = ref[1] * nz - ref[2] * ny
+    let ty = ref[2] * nx - ref[0] * nz
+    let tz = ref[0] * ny - ref[1] * nx
+    const tl = Math.hypot(tx, ty, tz) || 1
+    tx /= tl; ty /= tl; tz /= tl
+    const bx2 = ny * tz - nz * ty
+    const by2 = nz * tx - nx * tz
+    const bz2 = nx * ty - ny * tx
+    for (let i = 0; i < logoPositions.length; i += 3) {
+      const dx = logoPositions[i] - cx
+      const dy = logoPositions[i + 1] - cy
+      const dz = logoPositions[i + 2] - cz
+      const h = dx * nx + dy * ny + dz * nz
+      const u = dx * tx + dy * ty + dz * tz
+      const v = dx * bx2 + dy * by2 + dz * bz2
+      const hs = quad(u, v)
+      const rel = h - midH
+      out[i] = cx + u * tx + v * bx2 + (hs + rel) * nx
+      out[i + 1] = cy + u * ty + v * by2 + (hs + rel) * ny
+      out[i + 2] = cz + u * tz + v * bz2 + (hs + rel) * nz
+    }
+    return out
+  }
+
   for (let i = 0; i < logoPositions.length; i += 3) {
     const vx = logoPositions[i]
     const vy = logoPositions[i + 1]
@@ -254,4 +285,167 @@ export function measureLocalFaceExtent(
   const uSpan = 2 * Math.min(uPlus, uMinus)
   const vSpan = 2 * Math.min(vPlus, vMinus)
   return Math.min(uSpan, vSpan)
+}
+
+/**
+ * Split triangles until no edge exceeds `maxEdgeMm` (longest-edge midpoint
+ * bisection). Coarse extruded-logo triangles otherwise facet visibly when
+ * draped over curvature — bending happens only at vertices.
+ */
+export function subdivideSoupToMaxEdge(
+  positions: Float32Array,
+  maxEdgeMm: number,
+): Float32Array {
+  const limitSq = maxEdgeMm * maxEdgeMm
+  let tris: number[] = Array.from(positions)
+  // Each pass splits every over-limit triangle once; repeat until stable.
+  for (let pass = 0; pass < 32; pass++) {
+    const next: number[] = []
+    let split = false
+    for (let i = 0; i < tris.length; i += 9) {
+      const ax = tris[i], ay = tris[i + 1], az = tris[i + 2]
+      const bx = tris[i + 3], by = tris[i + 4], bz = tris[i + 5]
+      const cx = tris[i + 6], cy = tris[i + 7], cz = tris[i + 8]
+      const ab = (bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2
+      const bc = (cx - bx) ** 2 + (cy - by) ** 2 + (cz - bz) ** 2
+      const ca = (ax - cx) ** 2 + (ay - cy) ** 2 + (az - cz) ** 2
+      const longest = Math.max(ab, bc, ca)
+      if (longest <= limitSq) {
+        next.push(ax, ay, az, bx, by, bz, cx, cy, cz)
+        continue
+      }
+      split = true
+      if (longest === ab) {
+        const mx = (ax + bx) / 2, my = (ay + by) / 2, mz = (az + bz) / 2
+        next.push(ax, ay, az, mx, my, mz, cx, cy, cz)
+        next.push(mx, my, mz, bx, by, bz, cx, cy, cz)
+      } else if (longest === bc) {
+        const mx = (bx + cx) / 2, my = (by + cy) / 2, mz = (bz + cz) / 2
+        next.push(ax, ay, az, bx, by, bz, mx, my, mz)
+        next.push(ax, ay, az, mx, my, mz, cx, cy, cz)
+      } else {
+        const mx = (cx + ax) / 2, my = (cy + ay) / 2, mz = (cz + az) / 2
+        next.push(ax, ay, az, bx, by, bz, mx, my, mz)
+        next.push(mx, my, mz, bx, by, bz, cx, cy, cz)
+      }
+    }
+    tris = next
+    if (!split) break
+  }
+  return new Float32Array(tris)
+}
+
+type BasisTerm = (u: number, v: number) => number
+
+/** Least-squares fit of h(u,v) over the given basis terms (normal equations +
+ *  Gaussian elimination, scale-aware pivot). Returns coefficients or null
+ *  when the system is rank-deficient for these samples. */
+function fitBasis(
+  samples: Array<[number, number, number]>,
+  basis: BasisTerm[],
+): number[] | null {
+  const M = basis.length
+  const ATA: number[][] = Array.from({ length: M }, () => new Array(M + 1).fill(0))
+  let scale = 0
+  for (const [u, v, h] of samples) {
+    const row = basis.map((t) => t(u, v))
+    for (let r = 0; r < M; r++) {
+      for (let c = 0; c < M; c++) ATA[r][c] += row[r] * row[c]
+      ATA[r][M] += row[r] * h
+    }
+  }
+  for (let r = 0; r < M; r++) scale = Math.max(scale, Math.abs(ATA[r][r]))
+  const eps = scale * 1e-9 + 1e-12
+  for (let col = 0; col < M; col++) {
+    let piv = col
+    for (let r = col + 1; r < M; r++) {
+      if (Math.abs(ATA[r][col]) > Math.abs(ATA[piv][col])) piv = r
+    }
+    if (Math.abs(ATA[piv][col]) < eps) return null
+    if (piv !== col) [ATA[piv], ATA[col]] = [ATA[col], ATA[piv]]
+    for (let r = 0; r < M; r++) {
+      if (r === col) continue
+      const f = ATA[r][col] / ATA[col][col]
+      for (let c = col; c <= M; c++) ATA[r][c] -= f * ATA[col][c]
+    }
+  }
+  return ATA.map((row, r) => row[M] / row[r])
+}
+
+/** Basis ladder: full quadric first, then progressively reduced bases for
+ *  rank-deficient patches (e.g. two vertex rows make v² collinear with 1). */
+const BASIS_LADDER: BasisTerm[][] = [
+  [() => 1, (u) => u, (_u, v) => v, (u) => u * u, (u, v) => u * v, (_u, v) => v * v],
+  [() => 1, (u) => u, (_u, v) => v, (u) => u * u, (_u, v) => v * v],
+  [() => 1, (u) => u, (_u, v) => v, (u) => u * u],
+  [() => 1, (u) => u, (_u, v) => v, (_u, v) => v * v],
+  [() => 1, (u) => u, (_u, v) => v],
+]
+
+/** Fit a smooth quadric height field to the local host patch. Returns an
+ *  evaluator or null when the patch is too small / multi-surfaced for the
+ *  fit to be trustworthy (callers fall back to per-vertex raycasting).
+ *
+ *  Why: AI-generated (Meshy) surfaces are lumpy; per-vertex raycast drape
+ *  transfers every lump into the logo (prod, 2026-08-01). A quadric follows
+ *  planes, cylinders and gentle domes while filtering vertex noise. */
+export function fitHostQuadric(
+  hostPositions: Float32Array,
+  center: readonly [number, number, number],
+  normal: readonly [number, number, number],
+): ((u: number, v: number) => number) | null {
+  const [nx, ny, nz] = normal
+  const ref: [number, number, number] = Math.abs(nz) < 0.9 ? [0, 0, 1] : [1, 0, 0]
+  let tx = ref[1] * nz - ref[2] * ny
+  let ty = ref[2] * nx - ref[0] * nz
+  let tz = ref[0] * ny - ref[1] * nx
+  const tl = Math.hypot(tx, ty, tz) || 1
+  tx /= tl; ty /= tl; tz /= tl
+  const bx = ny * tz - nz * ty
+  const by = nz * tx - nx * tz
+  const bz = nx * ty - ny * tx
+
+  const HEIGHT_WINDOW_MM = 12
+  const samples: Array<[number, number, number]> = []
+  for (let i = 0; i < hostPositions.length; i += 9) {
+    // skip triangles facing away from the placement normal (back shells)
+    const ux = hostPositions[i + 3] - hostPositions[i]
+    const uy = hostPositions[i + 4] - hostPositions[i + 1]
+    const uz = hostPositions[i + 5] - hostPositions[i + 2]
+    const vx = hostPositions[i + 6] - hostPositions[i]
+    const vy = hostPositions[i + 7] - hostPositions[i + 1]
+    const vz = hostPositions[i + 8] - hostPositions[i + 2]
+    const fnx = uy * vz - uz * vy
+    const fny = uz * vx - ux * vz
+    const fnz = ux * vy - uy * vx
+    if (fnx * nx + fny * ny + fnz * nz <= 0) continue
+    for (let k = 0; k < 9; k += 3) {
+      const dx = hostPositions[i + k] - center[0]
+      const dy = hostPositions[i + k + 1] - center[1]
+      const dz = hostPositions[i + k + 2] - center[2]
+      const h = dx * nx + dy * ny + dz * nz
+      if (Math.abs(h) > HEIGHT_WINDOW_MM) continue
+      samples.push([dx * tx + dy * ty + dz * tz, dx * bx + dy * by + dz * bz, h])
+    }
+  }
+  if (samples.length < 12) return null
+  for (const basis of BASIS_LADDER) {
+    const q = fitBasis(samples, basis)
+    if (!q) continue
+    // Reject fits that do not actually describe the patch (mixed surfaces).
+    let sse = 0
+    for (const [u, v, h] of samples) {
+      let fit = 0
+      for (let t = 0; t < basis.length; t++) fit += q[t] * basis[t](u, v)
+      const e = h - fit
+      sse += e * e
+    }
+    if (Math.sqrt(sse / samples.length) > 3) continue
+    return (u: number, v: number) => {
+      let fit = 0
+      for (let t = 0; t < basis.length; t++) fit += q[t] * basis[t](u, v)
+      return fit
+    }
+  }
+  return null
 }

@@ -175,12 +175,16 @@ export async function applyAddLogo(
   // plaques skip this — raycast jitter on dense planar meshes created
   // micro-spikes the slicer shows as white garbage.
   if (!isThrough) {
-    const { drapeLogoPositions, filterTrianglesNear, isLocallyPlanar } = await import('./drape-logo')
+    const { drapeLogoPositions, filterTrianglesNear, isLocallyPlanar, subdivideSoupToMaxEdge } =
+      await import('./drape-logo')
     const radius = effectiveSizeMm * 0.75 + 4
     const localHost = filterTrianglesNear(mesh.positions, placeCentroid, radius)
     if (localHost.length >= 9 && !isLocallyPlanar(localHost, placeCentroid, placeNormal)) {
+      // Refine the coarse extruded logo first — bending happens only at
+      // vertices, so long potrace segments facet visibly on curvature.
+      const refined = subdivideSoupToMaxEdge(toolBody.positions, 1.2)
       const draped = drapeLogoPositions(
-        toolBody.positions,
+        refined,
         localHost,
         placeCentroid,
         placeNormal,
@@ -188,7 +192,8 @@ export async function applyAddLogo(
       )
       toolBody = recomputeMeshDerived({
         positions: draped,
-        extruders: toolBody.extruders,
+        // subdivision multiplied the triangle count; the whole tool is B
+        extruders: new Array(draped.length / 9).fill('B') as Array<'A' | 'B'>,
         triangleCount: draped.length / 9,
       })
     }

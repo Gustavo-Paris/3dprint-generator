@@ -193,3 +193,85 @@ describe('measureLocalFaceExtent (logo auto-fit to the clicked face)', () => {
     expect(cap).toBeGreaterThanOrEqual(40)
   })
 })
+
+describe('drape quality (quadric smoothing + subdivision)', () => {
+  /** Noisy half-cylinder shell: radius R with deterministic per-vertex radial
+   *  noise — a stand-in for lumpy AI-generated (Meshy) surfaces. */
+  function noisyCylinderSoup(R = 45, noise = 0.35, height = 40, seg = 72): Float32Array {
+    const tris: number[] = []
+    const jitter = (i: number, j: number) =>
+      noise * Math.sin(i * 12.9898 + j * 78.233 + i * i * 0.7) // deterministic pseudo-noise
+    const pt = (i: number, zi: number): [number, number, number] => {
+      const a = -Math.PI / 2 + (i / seg) * Math.PI
+      const r = R + jitter(i, zi)
+      return [r * Math.sin(a), -r * Math.cos(a), zi === 0 ? 0 : height]
+    }
+    for (let i = 0; i < seg; i++) {
+      const p00 = pt(i, 0), p10 = pt(i + 1, 0), p01 = pt(i, 1), p11 = pt(i + 1, 1)
+      tris.push(...p00, ...p10, ...p11, ...p00, ...p11, ...p01)
+    }
+    return new Float32Array(tris)
+  }
+
+  it('filters host surface noise: draped mid-plane rides the smooth cylinder', () => {
+    const R = 45
+    const host = noisyCylinderSoup(R, 0.8, 40, 36)
+    // flat logo slab footprint 24x14, thickness 1.4, mid-plane at h=0
+    const logo: number[] = []
+    for (let x = -12; x < 12; x += 2) {
+      for (let z = 13; z < 27; z += 2) {
+        // two thin triangles per cell at h=+0.7 (top face samples)
+        logo.push(x, -R - 0.7, z, x + 2, -R - 0.7, z, x + 2, -R - 0.7, z + 2)
+        logo.push(x, -R - 0.7, z, x + 2, -R - 0.7, z + 2, x, -R - 0.7, z + 2)
+      }
+    }
+    const draped = drapeLogoPositions(
+      new Float32Array(logo),
+      host,
+      [0, -R, 20],
+      [0, -1, 0],
+      0,
+    )
+    // every draped vertex should sit ~0.7mm proud of the IDEAL cylinder —
+    // radial error vs ideal must be well below the 0.35mm host noise
+    let maxErr = 0
+    for (let i = 0; i < draped.length; i += 3) {
+      const radial = Math.hypot(draped[i], draped[i + 1]) // distance from cyl axis
+      const err = Math.abs(radial - (R + 0.7))
+      if (err > maxErr) maxErr = err
+    }
+    expect(maxErr).toBeLessThan(0.3)
+  })
+
+  it('subdivides long logo edges so curved drapes do not facet', async () => {
+    const { subdivideSoupToMaxEdge } = await import('@/lib/import/ops/drape-logo')
+    // one large triangle, edges 20mm
+    const soup = new Float32Array([0, 0, 0, 20, 0, 0, 0, 20, 0])
+    const out = subdivideSoupToMaxEdge(soup, 1.5)
+    // area preserved
+    const area = (p: Float32Array) => {
+      let a = 0
+      for (let i = 0; i < p.length; i += 9) {
+        const ux = p[i + 3] - p[i], uy = p[i + 4] - p[i + 1], uz = p[i + 5] - p[i + 2]
+        const vx = p[i + 6] - p[i], vy = p[i + 7] - p[i + 1], vz = p[i + 8] - p[i + 2]
+        const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx
+        a += Math.hypot(cx, cy, cz) / 2
+      }
+      return a
+    }
+    expect(area(out)).toBeCloseTo(200, 3)
+    // max edge below the limit
+    let maxEdge = 0
+    for (let i = 0; i < out.length; i += 9) {
+      for (const [s, e] of [[0, 3], [3, 6], [6, 0]] as const) {
+        const d = Math.hypot(
+          out[i + e] - out[i + s],
+          out[i + e + 1] - out[i + s + 1],
+          out[i + e + 2] - out[i + s + 2],
+        )
+        if (d > maxEdge) maxEdge = d
+      }
+    }
+    expect(maxEdge).toBeLessThanOrEqual(1.5 + 1e-6)
+  })
+})
