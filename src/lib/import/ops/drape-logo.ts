@@ -186,3 +186,72 @@ export function drapeLogoPositions(
   }
   return out
 }
+
+/**
+ * Measure how much logo fits the CLICKED face by marching from the anchor
+ * along the two tangent axes and raycasting back onto the host. Marching
+ * stops at a ledge (height discontinuity — pedestal→torso), at a silhouette
+ * edge (ray miss — pedestal→floor), or at `maxHalfMm`. Smooth curvature
+ * (cans, foreheads) produces small per-step deltas and keeps marching, so
+ * the drape use-case is not penalized.
+ *
+ * Returns the maximum logo dimension (mm) that fits centered on the anchor:
+ * the smaller of the two symmetric tangent spans. Callers clamp their
+ * requested size with `Math.min(requested, extent)` — this function never
+ * needs to be an upper bound for meshes larger than `maxHalfMm`.
+ *
+ * Why: sizing heuristics based on the GLOBAL mesh bbox produced logos that
+ * dwarfed the local face on figurines (prod, 2026-07-31) — a 70 mm monogram
+ * clicked onto a 20 mm pedestal band swallowed the base and the floor.
+ */
+export function measureLocalFaceExtent(
+  hostPositions: Float32Array,
+  center: readonly [number, number, number],
+  normal: readonly [number, number, number],
+  maxHalfMm: number,
+): number {
+  const STEP_MM = 1.5
+  const LEDGE_MM = 2.5
+  const PROBE_HEIGHT_MM = 4
+  const [nx, ny, nz] = normal
+  // tangent frame (same construction as ops/_shared makeFrame, inlined to
+  // keep this module dependency-free)
+  const ref: [number, number, number] =
+    Math.abs(nz) < 0.9 ? [0, 0, 1] : [1, 0, 0]
+  let tx = ref[1] * nz - ref[2] * ny
+  let ty = ref[2] * nx - ref[0] * nz
+  let tz = ref[0] * ny - ref[1] * nx
+  const tl = Math.hypot(tx, ty, tz) || 1
+  tx /= tl; ty /= tl; tz /= tl
+  const bx = ny * tz - nz * ty
+  const by = nz * tx - nx * tz
+  const bz = nx * ty - ny * tx
+
+  const dir: [number, number, number] = [-nx, -ny, -nz]
+  const maxSteps = Math.max(1, Math.ceil((maxHalfMm + 2) / STEP_MM))
+
+  const marchLimit = (du: number, dvx: number, dvy: number, dvz: number): number => {
+    let prevH = 0
+    for (let s = 1; s <= maxSteps; s++) {
+      const d = s * STEP_MM * du
+      const ox = center[0] + dvx * d + nx * PROBE_HEIGHT_MM
+      const oy = center[1] + dvy * d + ny * PROBE_HEIGHT_MM
+      const oz = center[2] + dvz * d + nz * PROBE_HEIGHT_MM
+      const hit = raycastSoup([ox, oy, oz], dir, hostPositions)
+      if (!hit) return (s - 1) * STEP_MM
+      const h =
+        (hit[0] - center[0]) * nx + (hit[1] - center[1]) * ny + (hit[2] - center[2]) * nz
+      if (Math.abs(h - prevH) > LEDGE_MM) return (s - 1) * STEP_MM
+      prevH = h
+    }
+    return maxSteps * STEP_MM
+  }
+
+  const uPlus = marchLimit(1, tx, ty, tz)
+  const uMinus = marchLimit(-1, tx, ty, tz)
+  const vPlus = marchLimit(1, bx, by, bz)
+  const vMinus = marchLimit(-1, bx, by, bz)
+  const uSpan = 2 * Math.min(uPlus, uMinus)
+  const vSpan = 2 * Math.min(vPlus, vMinus)
+  return Math.min(uSpan, vSpan)
+}

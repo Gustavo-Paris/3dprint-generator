@@ -26,6 +26,7 @@ export async function applyAddLogo(
   op: AddLogoParams,
   faces: SemanticFace[],
   logoImageBuffer?: Buffer | null,
+  warn?: (reason: string) => void,
 ): Promise<BaseMesh> {
   // Placement frame: an explicit anchor (click-to-place) wins over a semantic
   // face (LLM path). The anchor lets the logo land exactly where the user
@@ -61,6 +62,31 @@ export async function applyAddLogo(
 
   const isThrough = op.treatment === 'through_cut'
 
+  // Fit the logo to the CLICKED face, not the requested size: bbox-derived
+  // suggestions dwarf local faces on figurines (a 70 mm monogram on a 20 mm
+  // pedestal band swallowed base + floor — prod, 2026-07-31). March the local
+  // surface from the anchor and cap the size at the first ledge / silhouette
+  // edge; smooth curvature (cans) keeps its full span.
+  const { measureLocalFaceExtent, filterTrianglesNear: filterNearForFit } =
+    await import('./drape-logo')
+  let effectiveSizeMm = op.sizeMm
+  const fitHost = filterNearForFit(mesh.positions, placeCentroid, op.sizeMm / 2 + 8)
+  if (fitHost.length >= 9) {
+    const localSpan = measureLocalFaceExtent(
+      fitHost,
+      placeCentroid,
+      placeNormal,
+      op.sizeMm / 2,
+    )
+    effectiveSizeMm = Math.max(12, Math.min(op.sizeMm, localSpan))
+    if (effectiveSizeMm < op.sizeMm - 0.5) {
+      warn?.(
+        `logo reduzido de ${Math.round(op.sizeMm)}mm para ${Math.round(effectiveSizeMm)}mm ` +
+          'para caber na face clicada',
+      )
+    }
+  }
+
   // Cap depth to local plate thickness. Keychains are often ~1.5–2 mm — a
   // 1.4 mm emboss with deep embed used to nearly pierce (or poke through) and
   // leave paper-thin residual shells the slicer flags as garbage.
@@ -81,7 +107,7 @@ export async function applyAddLogo(
   //   - scaled so largest XZ dim = targetMaxDim, Y depth = depthMm
   const logoResult = await extrudeLogo({
     imageBuffer: imgBuffer,
-    targetMaxDim: op.sizeMm,
+    targetMaxDim: effectiveSizeMm,
     depthMm: cutterDepth,
     // Printable monogram: drop speckles, simplify curves a bit, fatten stems
     // so 0.4 mm nozzles don't leave sub-layer white-dot garbage in Bambu.
@@ -150,7 +176,7 @@ export async function applyAddLogo(
   // micro-spikes the slicer shows as white garbage.
   if (!isThrough) {
     const { drapeLogoPositions, filterTrianglesNear, isLocallyPlanar } = await import('./drape-logo')
-    const radius = op.sizeMm * 0.75 + 4
+    const radius = effectiveSizeMm * 0.75 + 4
     const localHost = filterTrianglesNear(mesh.positions, placeCentroid, radius)
     if (localHost.length >= 9 && !isLocallyPlanar(localHost, placeCentroid, placeNormal)) {
       const draped = drapeLogoPositions(

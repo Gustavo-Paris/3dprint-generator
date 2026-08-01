@@ -15,12 +15,14 @@ export interface OpContext {
   logoImageBuffer?: Buffer | null
   /** Filled by paint_from_image so the API can seed viewer colour pickers. */
   paintPalette?: { A: string; B: string }
+  /** Non-fatal op feedback surfaced to the client (apply-edits wires it per op). */
+  warn?: (reason: string) => void
 }
 
 export const OPS = {
   scale:            (mesh: BaseMesh, op: Op, _ctx: OpContext) => applyScale(mesh, op as never),
   hole:             (mesh: BaseMesh, op: Op, ctx: OpContext)  => applyHole(mesh, op as never, ctx.faces),
-  add_logo:         (mesh: BaseMesh, op: Op, ctx: OpContext)  => applyAddLogo(mesh, op as never, ctx.faces, ctx.logoImageBuffer),
+  add_logo:         (mesh: BaseMesh, op: Op, ctx: OpContext)  => applyAddLogo(mesh, op as never, ctx.faces, ctx.logoImageBuffer, ctx.warn),
   emboss_text:      (mesh: BaseMesh, op: Op, ctx: OpContext)  => applyEmbossText(mesh, op as never, ctx.faces),
   jscad_raw:        (mesh: BaseMesh, op: Op, _ctx: OpContext) => applyJscadRaw(mesh, op as never),
   paint_region:     (mesh: BaseMesh, op: Op, ctx: OpContext)  => applyPaintRegion(mesh, op as never, ctx.faces),

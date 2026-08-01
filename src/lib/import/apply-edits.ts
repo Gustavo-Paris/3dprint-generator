@@ -35,6 +35,7 @@ export async function applyEdits(
     faces: SemanticFace[]
     logoImageBuffer?: Buffer | null
     paintPalette?: { A: string; B: string }
+    warn?: (reason: string) => void
   } = { faces, logoImageBuffer }
 
   for (let i = 0; i < edits.length; i++) {
@@ -56,6 +57,7 @@ export async function applyEdits(
       continue
     }
     try {
+      ctx.warn = (reason: string) => warnings.push({ opIndex: i, op: edit.op, reason })
       mesh = await handler(mesh, edit, ctx)
     } catch (e) {
       warnings.push({ opIndex: i, op: edit.op, reason: (e as Error).message })
