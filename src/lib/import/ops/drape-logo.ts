@@ -155,63 +155,29 @@ export function drapeLogoPositions(
   const [cx, cy, cz] = center
   // Cast from well outside the solid toward the surface.
   const span = 200 // mm — enough for any practical model size
-  const out = new Float32Array(logoPositions.length)
+  const nVerts = logoPositions.length / 3
 
-  // Prefer a smooth quadric fit of the host patch: raw per-vertex raycasting
-  // transfers every lump of noisy AI-generated surfaces into the logo. The
-  // fit follows planes/cylinders/domes while filtering vertex noise; when it
-  // is unavailable (tiny or multi-surface patch) fall back to raycasting.
-  const quad = fitHostQuadric(hostPositions, center, normal)
-  if (quad) {
-    const ref: [number, number, number] = Math.abs(nz) < 0.9 ? [0, 0, 1] : [1, 0, 0]
-    let tx = ref[1] * nz - ref[2] * ny
-    let ty = ref[2] * nx - ref[0] * nz
-    let tz = ref[0] * ny - ref[1] * nx
-    const tl = Math.hypot(tx, ty, tz) || 1
-    tx /= tl; ty /= tl; tz /= tl
-    const bx2 = ny * tz - nz * ty
-    const by2 = nz * tx - nx * tz
-    const bz2 = nx * ty - ny * tx
-    for (let i = 0; i < logoPositions.length; i += 3) {
-      const dx = logoPositions[i] - cx
-      const dy = logoPositions[i + 1] - cy
-      const dz = logoPositions[i + 2] - cz
-      const h = dx * nx + dy * ny + dz * nz
-      const u = dx * tx + dy * ty + dz * tz
-      const v = dx * bx2 + dy * by2 + dz * bz2
-      const hs = quad(u, v)
-      const rel = h - midH
-      out[i] = cx + u * tx + v * bx2 + (hs + rel) * nx
-      out[i + 1] = cy + u * ty + v * by2 + (hs + rel) * ny
-      out[i + 2] = cz + u * tz + v * bz2 + (hs + rel) * nz
-    }
-    return out
-  }
-
-  // Raycast fallback — two passes so vertices whose ray MISSES the host
-  // (logo edge past the face silhouette) inherit the average hit height
-  // instead of staying at their flat position, which stuck out as spikes.
-  const surfaceH = new Float64Array(logoPositions.length / 3)
-  const hitMask = new Uint8Array(logoPositions.length / 3)
+  // Pass 1 — raycast every vertex foot onto the host (ground truth).
+  const rayH = new Float64Array(nVerts)
+  const hitMask = new Uint8Array(nVerts)
   let hitSum = 0
   let hitCount = 0
   for (let i = 0, vi = 0; i < logoPositions.length; i += 3, vi++) {
-    const vx = logoPositions[i]
-    const vy = logoPositions[i + 1]
-    const vz = logoPositions[i + 2]
-    const h = (vx - cx) * nx + (vy - cy) * ny + (vz - cz) * nz
-    const px = vx - h * nx
-    const py = vy - h * ny
-    const pz = vz - h * nz
-    // Ray from outside along −N so we hit the outward face first.
-    const ox = px + nx * span
-    const oy = py + ny * span
-    const oz = pz + nz * span
-    const hit = raycastSoup([ox, oy, oz], [-nx, -ny, -nz], hostPositions)
+    const dx0 = logoPositions[i] - cx
+    const dy0 = logoPositions[i + 1] - cy
+    const dz0 = logoPositions[i + 2] - cz
+    const h = dx0 * nx + dy0 * ny + dz0 * nz
+    const px = logoPositions[i] - h * nx
+    const py = logoPositions[i + 1] - h * ny
+    const pz = logoPositions[i + 2] - h * nz
+    const hit = raycastSoup(
+      [px + nx * span, py + ny * span, pz + nz * span],
+      [-nx, -ny, -nz],
+      hostPositions,
+    )
     if (hit) {
-      const hh =
-        (hit[0] - cx) * nx + (hit[1] - cy) * ny + (hit[2] - cz) * nz
-      surfaceH[vi] = hh
+      const hh = (hit[0] - cx) * nx + (hit[1] - cy) * ny + (hit[2] - cz) * nz
+      rayH[vi] = hh
       hitMask[vi] = 1
       hitSum += hh
       hitCount++
@@ -219,21 +185,57 @@ export function drapeLogoPositions(
   }
   if (hitCount === 0) return logoPositions.slice() // nothing to drape onto
   const avgH = hitSum / hitCount
+
+  // Pass 2 — smooth surface height per vertex. The quadric fit filters the
+  // lumps of noisy AI-generated hosts, but is CLAMPED to ±0.6 mm of the
+  // raycast truth where a ray hit: unbounded extrapolation flattened at wide
+  // wrap angles and lifted logo edges tangentially off cylinders.
+  const CLAMP_MM = 0.6
+  const quad = fitHostQuadric(hostPositions, center, normal)
+  const ref: [number, number, number] = Math.abs(nz) < 0.9 ? [0, 0, 1] : [1, 0, 0]
+  let tx = ref[1] * nz - ref[2] * ny
+  let ty = ref[2] * nx - ref[0] * nz
+  let tz = ref[0] * ny - ref[1] * nx
+  const tl = Math.hypot(tx, ty, tz) || 1
+  tx /= tl; ty /= tl; tz /= tl
+  const bx2 = ny * tz - nz * ty
+  const by2 = nz * tx - nx * tz
+  const bz2 = nx * ty - ny * tx
+
+  const out = new Float32Array(logoPositions.length)
   for (let i = 0, vi = 0; i < logoPositions.length; i += 3, vi++) {
-    const vx = logoPositions[i]
-    const vy = logoPositions[i + 1]
-    const vz = logoPositions[i + 2]
-    const h = (vx - cx) * nx + (vy - cy) * ny + (vz - cz) * nz
-    const px = vx - h * nx
-    const py = vy - h * ny
-    const pz = vz - h * nz
-    const hs = hitMask[vi] ? surfaceH[vi] : avgH
+    const dx0 = logoPositions[i] - cx
+    const dy0 = logoPositions[i + 1] - cy
+    const dz0 = logoPositions[i + 2] - cz
+    const h = dx0 * nx + dy0 * ny + dz0 * nz
+    const u = dx0 * tx + dy0 * ty + dz0 * tz
+    const v = dx0 * bx2 + dy0 * by2 + dz0 * bz2
+    let hs: number
+    if (quad) {
+      const q = quad(u, v)
+      hs = hitMask[vi]
+        ? Math.min(rayH[vi] + CLAMP_MM, Math.max(rayH[vi] - CLAMP_MM, q))
+        : q
+    } else {
+      hs = hitMask[vi] ? rayH[vi] : avgH
+    }
     const rel = h - midH
-    out[i] = px + (hs + rel) * nx
-    out[i + 1] = py + (hs + rel) * ny
-    out[i + 2] = pz + (hs + rel) * nz
+    out[i] = cx + u * tx + v * bx2 + (hs + rel) * nx
+    out[i + 1] = cy + u * ty + v * by2 + (hs + rel) * ny
+    out[i + 2] = cz + u * tz + v * bz2 + (hs + rel) * nz
   }
-  return out
+
+  // Pass 3 — trim triangles fully past the face silhouette (all 3 rays
+  // missed). For embossed logos those triangles are appended to the model
+  // as-is, so without trimming they stick out as a fin hanging in the air
+  // where the host curves away (prod, 2026-08-02).
+  const kept: number[] = []
+  for (let t = 0; t < nVerts / 3; t++) {
+    const anyHit = hitMask[t * 3] || hitMask[t * 3 + 1] || hitMask[t * 3 + 2]
+    if (!anyHit) continue
+    for (let k = 0; k < 9; k++) kept.push(out[t * 9 + k])
+  }
+  return new Float32Array(kept)
 }
 
 /**
@@ -259,6 +261,20 @@ export function measureLocalFaceExtent(
   normal: readonly [number, number, number],
   maxHalfMm: number,
 ): number {
+  const { uSpan, vSpan } = measureLocalFaceSpans(hostPositions, center, normal, maxHalfMm)
+  return Math.min(uSpan, vSpan)
+}
+
+/** Per-axis variant of `measureLocalFaceExtent`: returns the symmetric spans
+ *  along both tangent axes separately. Wide logos (wordmarks) only need to
+ *  fit their HEIGHT into the short axis — capping the max dimension by the
+ *  min span shrank a 3:1 wordmark to a third of the available width. */
+export function measureLocalFaceSpans(
+  hostPositions: Float32Array,
+  center: readonly [number, number, number],
+  normal: readonly [number, number, number],
+  maxHalfMm: number,
+): { uSpan: number; vSpan: number } {
   // Scale-adaptive marching: the original fixed 1.5/2.5/4 mm constants were
   // tuned on ≥60 mm meshes; on a 24 mm figurine the ledge threshold exceeded
   // the whole pedestal band and the probe overshot the surface. All three
@@ -304,9 +320,10 @@ export function measureLocalFaceExtent(
   const uMinus = marchLimit(-1, tx, ty, tz)
   const vPlus = marchLimit(1, bx, by, bz)
   const vMinus = marchLimit(-1, bx, by, bz)
-  const uSpan = 2 * Math.min(uPlus, uMinus)
-  const vSpan = 2 * Math.min(vPlus, vMinus)
-  return Math.min(uSpan, vSpan)
+  return {
+    uSpan: 2 * Math.min(uPlus, uMinus),
+    vSpan: 2 * Math.min(vPlus, vMinus),
+  }
 }
 
 /**

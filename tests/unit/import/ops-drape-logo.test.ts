@@ -310,3 +310,47 @@ describe('tiny-figurine scale (24mm Funko pedestal — prod regression 2026-08-0
     expect(span).toBeLessThanOrEqual(10)
   })
 })
+
+describe('per-axis spans + silhouette trim (wordmark fixes 2026-08-02)', () => {
+  it('reports wide u-span and short v-span separately on a band', async () => {
+    const { measureLocalFaceSpans } = await import('@/lib/import/ops/drape-logo')
+    // 80-wide x 20-tall flat band at y=0 (normal -Y), floor below, recess above
+    const tris: number[] = []
+    const quad = (a: number[], b: number[], c: number[], d: number[]) =>
+      tris.push(...a, ...b, ...c, ...a, ...c, ...d)
+    quad([-40, 0, 0], [-40, 0, 20], [40, 0, 20], [40, 0, 0])
+    quad([-80, 0, 0], [80, 0, 0], [80, 80, 0], [-80, 80, 0])          // floor
+    quad([-40, 10, 20], [-40, 10, 90], [40, 10, 90], [40, 10, 20])    // recessed
+    const spans = measureLocalFaceSpans(new Float32Array(tris), [0, 0, 10], [0, -1, 0], 35)
+    expect(spans.uSpan).toBeGreaterThanOrEqual(60)
+    expect(spans.vSpan).toBeGreaterThanOrEqual(14)
+    expect(spans.vSpan).toBeLessThanOrEqual(24)
+  })
+
+  it('trims logo triangles fully past the face silhouette (no floating fins)', () => {
+    // host: plane only on the LEFT half (x in [-30, 0]) at y=0
+    const host = new Float32Array([
+      -30, 0, -20, 0, 0, -20, 0, 0, 20,
+      -30, 0, -20, 0, 0, 20, -30, 0, 20,
+    ])
+    // logo strip from x=-10 to x=+14 (right part hangs in the air)
+    const logo: number[] = []
+    for (let x = -10; x < 14; x += 2) {
+      logo.push(x, -0.7, -3, x + 2, -0.7, -3, x + 2, -0.7, 3)
+      logo.push(x, -0.7, -3, x + 2, -0.7, 3, x, -0.7, 3)
+    }
+    const draped = drapeLogoPositions(
+      new Float32Array(logo), host, [-5, 0, 0], [0, -1, 0], 0,
+    )
+    expect(draped.length).toBeLessThan(logo.length)   // something was trimmed
+    // every surviving vertex must be near the host plane (no flat-position spikes)
+    for (let i = 1; i < draped.length; i += 3) {
+      expect(Math.abs(draped[i])).toBeLessThan(1.5)
+    }
+    // and no surviving triangle may live ENTIRELY past the silhouette (x > 1)
+    for (let t = 0; t < draped.length / 9; t++) {
+      const xs = [draped[t * 9], draped[t * 9 + 3], draped[t * 9 + 6]]
+      expect(Math.min(...xs)).toBeLessThanOrEqual(2)
+    }
+  })
+})

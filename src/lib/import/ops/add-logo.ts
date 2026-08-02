@@ -62,48 +62,27 @@ export async function applyAddLogo(
 
   const isThrough = op.treatment === 'through_cut'
 
-  // Fit the logo to the CLICKED face, not the requested size: bbox-derived
-  // suggestions dwarf local faces on figurines (a 70 mm monogram on a 20 mm
-  // pedestal band swallowed base + floor — prod, 2026-07-31). March the local
-  // surface from the anchor and cap the size at the first ledge / silhouette
-  // edge; smooth curvature (cans) keeps its full span.
-  const { measureLocalFaceExtent, filterTrianglesNear: filterNearForFit } =
+  // Measure the CLICKED face's tangent spans (u = horizontal, v = vertical).
+  // bbox-derived size suggestions dwarf local faces on figurines (prod,
+  // 2026-07-31); and capping the logo's MAX dimension by the MIN span shrank
+  // wide wordmarks to a third of the available width (prod, 2026-08-02) —
+  // the per-axis spans let a 3:1 wordmark fill the band width as long as its
+  // HEIGHT fits the band. The actual scaling happens after tracing, when the
+  // logo's real aspect ratio is known.
+  const { measureLocalFaceSpans, filterTrianglesNear: filterNearForFit } =
     await import('./drape-logo')
-  let effectiveSizeMm = op.sizeMm
+  let faceSpans: { uSpan: number; vSpan: number } | null = null
   const fitHost = filterNearForFit(mesh.positions, placeCentroid, op.sizeMm / 2 + 8)
   if (fitHost.length >= 9) {
-    let localSpan = measureLocalFaceExtent(
-      fitHost,
-      placeCentroid,
-      placeNormal,
-      op.sizeMm / 2,
-    )
+    faceSpans = measureLocalFaceSpans(fitHost, placeCentroid, placeNormal, op.sizeMm / 2)
     // Small faces need a finer second pass — the first one marched with
     // steps sized for the REQUESTED logo, too coarse for a tiny pedestal.
-    if (localSpan < 15) {
-      localSpan = measureLocalFaceExtent(
+    if (Math.max(faceSpans.uSpan, faceSpans.vSpan) < 15) {
+      faceSpans = measureLocalFaceSpans(
         fitHost,
         placeCentroid,
         placeNormal,
-        Math.max(localSpan * 0.75, 3),
-      )
-    }
-    // NEVER force a floor above what the face fits (the old 12 mm floor made
-    // logos larger than small-figurine pedestals → boolean shrapnel). A logo
-    // under ~6 mm is unprintable noise with a 0.4 nozzle — skip with a clear
-    // message instead of producing garbage.
-    if (localSpan < 6) {
-      throw new Error(
-        `a face clicada só comporta ~${Math.max(1, Math.round(localSpan))}mm de logo — ` +
-          'muito pequeno para imprimir. Clique numa área maior (ex.: frente do corpo) ' +
-          'ou aumente o modelo antes de aplicar o logo.',
-      )
-    }
-    effectiveSizeMm = Math.min(op.sizeMm, localSpan)
-    if (effectiveSizeMm < op.sizeMm - 0.5) {
-      warn?.(
-        `logo reduzido de ${Math.round(op.sizeMm)}mm para ${Math.round(effectiveSizeMm)}mm ` +
-          'para caber na face clicada',
+        Math.max(Math.max(faceSpans.uSpan, faceSpans.vSpan) * 0.75, 3),
       )
     }
   }
@@ -128,7 +107,7 @@ export async function applyAddLogo(
   //   - scaled so largest XZ dim = targetMaxDim, Y depth = depthMm
   const logoResult = await extrudeLogo({
     imageBuffer: imgBuffer,
-    targetMaxDim: effectiveSizeMm,
+    targetMaxDim: op.sizeMm,
     depthMm: cutterDepth,
     // Printable monogram: drop speckles, simplify curves a bit, fatten stems
     // so 0.4 mm nozzles don't leave sub-layer white-dot garbage in Bambu.
@@ -149,11 +128,43 @@ export async function applyAddLogo(
   const { transforms } =
     (jscadNs as unknown as { default?: typeof import('@jscad/modeling') }).default ?? jscadNs
 
+  // Per-axis fit: scale the traced logo so its WIDTH fits the horizontal
+  // span and its HEIGHT the vertical span of the clicked face (standing
+  // solid: width = X, height = Z, depth = Y — depth is NOT scaled).
+  let standing = logoResult.geom3 as Geom3
+  let effectiveSizeMm = op.sizeMm
+  if (faceSpans) {
+    const logoW = logoResult.meta.bboxMm.x || 1
+    const logoH = logoResult.meta.bboxMm.z || 1
+    const fitFactor = Math.min(1, faceSpans.uSpan / logoW, faceSpans.vSpan / logoH)
+    const finalW = logoW * fitFactor
+    const finalH = logoH * fitFactor
+    // NEVER force a floor above what the face fits (the old 12 mm floor made
+    // logos larger than small-figurine pedestals → boolean shrapnel). A logo
+    // under ~6 mm is unprintable noise with a 0.4 nozzle — skip with a clear
+    // message instead of producing garbage.
+    if (Math.max(finalW, finalH) < 6) {
+      throw new Error(
+        `a face clicada só comporta ~${Math.max(1, Math.round(Math.max(finalW, finalH)))}mm de logo — ` +
+          'muito pequeno para imprimir. Clique numa área maior (ex.: frente do corpo) ' +
+          'ou aumente o modelo antes de aplicar o logo.',
+      )
+    }
+    if (fitFactor < 0.98) {
+      standing = transforms.scale([fitFactor, 1, fitFactor], standing as never) as Geom3
+      warn?.(
+        `logo ajustado para ${Math.round(finalW)}×${Math.round(finalH)}mm ` +
+          'para caber na face clicada',
+      )
+    }
+    effectiveSizeMm = Math.max(finalW, finalH)
+  }
+
   // Lay the logo flat: rotateX(-π/2) maps standing → flat.
   // After this, the logo lies on the XY plane:
   //   - face area in XY, depth (cutterDepth) along +Z
   //   - local +Y is the TEXT'S UP, local +X its reading direction
-  let flat = transforms.rotateX(-Math.PI / 2, logoResult.geom3 as never) as Geom3
+  let flat = transforms.rotateX(-Math.PI / 2, standing as never) as Geom3
 
   // Orient with an EXPLICIT upright basis, not the minimal +Z→normal
   // rotation: the minimal rotation leaves the in-plane roll arbitrary, which
