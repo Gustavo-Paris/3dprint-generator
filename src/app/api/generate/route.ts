@@ -155,15 +155,29 @@ export async function POST(req: Request) {
       } else {
         const publicDir = join(process.cwd(), 'public')
         const rel = effectiveImageUrl.startsWith('/') ? effectiveImageUrl.slice(1) : effectiveImageUrl
-        // Lexical containment (join normalizes any ..) — NOT realpath: in
-        // production public/uploads and public/meshes are symlinks onto the
-        // Railway volume (/data), so resolving symlinks made every legit
-        // upload look like an escape and silently dropped the logo image.
+        // Two-layer containment. Lexical first (join normalizes any ..), then
+        // realpath against the ALLOWED roots: publicDir itself plus the
+        // resolved targets of public/uploads and public/meshes — in
+        // production those two are symlinks onto the Railway volume (/data),
+        // so a naive realpath-vs-publicDir check rejected every legit upload,
+        // while a lexical-only check would trust any other symlink planted
+        // under public/. This allows exactly our symlinks and nothing else.
         const p = join(publicDir, rel)
         if (p !== publicDir && !p.startsWith(publicDir + sep)) {
           throw new Error('image path escapes public dir')
         }
-        logoImageBuffer = await readFile(p)
+        const allowedRoots = (
+          await Promise.all(
+            [publicDir, join(publicDir, 'uploads'), join(publicDir, 'meshes')].map((d) =>
+              realpath(d).catch(() => null),
+            ),
+          )
+        ).filter((r): r is string => r !== null)
+        const real = await realpath(p)
+        if (!allowedRoots.some((r) => real === r || real.startsWith(r + sep))) {
+          throw new Error('image path escapes public dir')
+        }
+        logoImageBuffer = await readFile(real)
       }
     } catch (err) {
       log.error('image fetch failed (continuing without logo)', err, { iterationId: iteration.id })
