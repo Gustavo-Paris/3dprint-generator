@@ -241,9 +241,13 @@ export function measureLocalFaceExtent(
   normal: readonly [number, number, number],
   maxHalfMm: number,
 ): number {
-  const STEP_MM = 1.5
-  const LEDGE_MM = 2.5
-  const PROBE_HEIGHT_MM = 4
+  // Scale-adaptive marching: the original fixed 1.5/2.5/4 mm constants were
+  // tuned on ≥60 mm meshes; on a 24 mm figurine the ledge threshold exceeded
+  // the whole pedestal band and the probe overshot the surface. All three
+  // converge to the original values for maxHalfMm ≥ ~15.
+  const STEP_MM = Math.min(1.5, Math.max(0.35, maxHalfMm / 10))
+  const LEDGE_MM = Math.min(2.5, Math.max(0.8, maxHalfMm * 0.22))
+  const PROBE_HEIGHT_MM = Math.min(4, Math.max(1.2, maxHalfMm / 3))
   const [nx, ny, nz] = normal
   // tangent frame (same construction as ops/_shared makeFrame, inlined to
   // keep this module dependency-free)

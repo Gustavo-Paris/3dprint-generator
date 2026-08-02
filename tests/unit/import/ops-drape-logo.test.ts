@@ -275,3 +275,38 @@ describe('drape quality (quadric smoothing + subdivision)', () => {
     expect(maxEdge).toBeLessThanOrEqual(1.5 + 1e-6)
   })
 })
+
+describe('tiny-figurine scale (24mm Funko pedestal — prod regression 2026-08-02)', () => {
+  /** Ø24 pedestal band, 8mm tall, with floor below and recessed body above —
+   *  the scale where the old 12mm size floor produced boolean shrapnel. */
+  function tinyPedestalScene(): Float32Array {
+    const tris: number[] = []
+    const R = 12, SEG = 48, Z0 = 0, Z1 = 8
+    for (let i = 0; i < SEG; i++) {
+      const a0 = (i / SEG) * Math.PI * 2
+      const a1 = ((i + 1) / SEG) * Math.PI * 2
+      const p = (a: number, z: number) => [R * Math.sin(a), -R * Math.cos(a), z]
+      tris.push(...p(a0, Z0), ...p(a1, Z0), ...p(a1, Z1))
+      tris.push(...p(a0, Z0), ...p(a1, Z1), ...p(a0, Z1))
+    }
+    // recessed body above (Ø16 cylinder from z=8 up)
+    for (let i = 0; i < SEG; i++) {
+      const a0 = (i / SEG) * Math.PI * 2
+      const a1 = ((i + 1) / SEG) * Math.PI * 2
+      const p = (a: number, z: number) => [8 * Math.sin(a), -8 * Math.cos(a), z]
+      tris.push(...p(a0, 8), ...p(a1, 8), ...p(a1, 40))
+      tris.push(...p(a0, 8), ...p(a1, 40), ...p(a0, 40))
+    }
+    return new Float32Array(tris)
+  }
+
+  it('measures a single-digit span instead of inflating to a 12mm floor', async () => {
+    const { measureLocalFaceExtent } = await import('@/lib/import/ops/drape-logo')
+    const coarse = measureLocalFaceExtent(tinyPedestalScene(), [0, -12, 4], [0, -1, 0], 22.5)
+    const span = coarse < 15
+      ? measureLocalFaceExtent(tinyPedestalScene(), [0, -12, 4], [0, -1, 0], Math.max(coarse * 0.75, 3))
+      : coarse
+    expect(span).toBeGreaterThanOrEqual(5)
+    expect(span).toBeLessThanOrEqual(10)
+  })
+})

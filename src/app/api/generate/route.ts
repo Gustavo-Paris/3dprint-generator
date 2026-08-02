@@ -155,11 +155,15 @@ export async function POST(req: Request) {
       } else {
         const publicDir = join(process.cwd(), 'public')
         const rel = effectiveImageUrl.startsWith('/') ? effectiveImageUrl.slice(1) : effectiveImageUrl
-        const real = await realpath(join(publicDir, rel))
-        if (real !== publicDir && !real.startsWith(publicDir + sep)) {
+        // Lexical containment (join normalizes any ..) — NOT realpath: in
+        // production public/uploads and public/meshes are symlinks onto the
+        // Railway volume (/data), so resolving symlinks made every legit
+        // upload look like an escape and silently dropped the logo image.
+        const p = join(publicDir, rel)
+        if (p !== publicDir && !p.startsWith(publicDir + sep)) {
           throw new Error('image path escapes public dir')
         }
-        logoImageBuffer = await readFile(real)
+        logoImageBuffer = await readFile(p)
       }
     } catch (err) {
       log.error('image fetch failed (continuing without logo)', err, { iterationId: iteration.id })

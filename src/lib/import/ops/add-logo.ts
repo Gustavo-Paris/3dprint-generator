@@ -72,13 +72,34 @@ export async function applyAddLogo(
   let effectiveSizeMm = op.sizeMm
   const fitHost = filterNearForFit(mesh.positions, placeCentroid, op.sizeMm / 2 + 8)
   if (fitHost.length >= 9) {
-    const localSpan = measureLocalFaceExtent(
+    let localSpan = measureLocalFaceExtent(
       fitHost,
       placeCentroid,
       placeNormal,
       op.sizeMm / 2,
     )
-    effectiveSizeMm = Math.max(12, Math.min(op.sizeMm, localSpan))
+    // Small faces need a finer second pass — the first one marched with
+    // steps sized for the REQUESTED logo, too coarse for a tiny pedestal.
+    if (localSpan < 15) {
+      localSpan = measureLocalFaceExtent(
+        fitHost,
+        placeCentroid,
+        placeNormal,
+        Math.max(localSpan * 0.75, 3),
+      )
+    }
+    // NEVER force a floor above what the face fits (the old 12 mm floor made
+    // logos larger than small-figurine pedestals → boolean shrapnel). A logo
+    // under ~6 mm is unprintable noise with a 0.4 nozzle — skip with a clear
+    // message instead of producing garbage.
+    if (localSpan < 6) {
+      throw new Error(
+        `a face clicada só comporta ~${Math.max(1, Math.round(localSpan))}mm de logo — ` +
+          'muito pequeno para imprimir. Clique numa área maior (ex.: frente do corpo) ' +
+          'ou aumente o modelo antes de aplicar o logo.',
+      )
+    }
+    effectiveSizeMm = Math.min(op.sizeMm, localSpan)
     if (effectiveSizeMm < op.sizeMm - 0.5) {
       warn?.(
         `logo reduzido de ${Math.round(op.sizeMm)}mm para ${Math.round(effectiveSizeMm)}mm ` +
@@ -182,7 +203,10 @@ export async function applyAddLogo(
     if (localHost.length >= 9 && !isLocallyPlanar(localHost, placeCentroid, placeNormal)) {
       // Refine the coarse extruded logo first — bending happens only at
       // vertices, so long potrace segments facet visibly on curvature.
-      const refined = subdivideSoupToMaxEdge(toolBody.positions, 1.2)
+      const refined = subdivideSoupToMaxEdge(
+        toolBody.positions,
+        Math.min(1.2, effectiveSizeMm / 14),
+      )
       const draped = drapeLogoPositions(
         refined,
         localHost,
