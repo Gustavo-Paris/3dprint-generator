@@ -188,13 +188,18 @@ export function drapeLogoPositions(
     return out
   }
 
-  for (let i = 0; i < logoPositions.length; i += 3) {
+  // Raycast fallback — two passes so vertices whose ray MISSES the host
+  // (logo edge past the face silhouette) inherit the average hit height
+  // instead of staying at their flat position, which stuck out as spikes.
+  const surfaceH = new Float64Array(logoPositions.length / 3)
+  const hitMask = new Uint8Array(logoPositions.length / 3)
+  let hitSum = 0
+  let hitCount = 0
+  for (let i = 0, vi = 0; i < logoPositions.length; i += 3, vi++) {
     const vx = logoPositions[i]
     const vy = logoPositions[i + 1]
     const vz = logoPositions[i + 2]
-    // Height of this vertex above the placement plane through center.
     const h = (vx - cx) * nx + (vy - cy) * ny + (vz - cz) * nz
-    // Foot on the placement plane.
     const px = vx - h * nx
     const py = vy - h * ny
     const pz = vz - h * nz
@@ -203,17 +208,30 @@ export function drapeLogoPositions(
     const oy = py + ny * span
     const oz = pz + nz * span
     const hit = raycastSoup([ox, oy, oz], [-nx, -ny, -nz], hostPositions)
-    if (!hit) {
-      out[i] = vx
-      out[i + 1] = vy
-      out[i + 2] = vz
-      continue
+    if (hit) {
+      const hh =
+        (hit[0] - cx) * nx + (hit[1] - cy) * ny + (hit[2] - cz) * nz
+      surfaceH[vi] = hh
+      hitMask[vi] = 1
+      hitSum += hh
+      hitCount++
     }
-    // Preserve thickness relative to the logo mid-plane; mid rides the surface.
+  }
+  if (hitCount === 0) return logoPositions.slice() // nothing to drape onto
+  const avgH = hitSum / hitCount
+  for (let i = 0, vi = 0; i < logoPositions.length; i += 3, vi++) {
+    const vx = logoPositions[i]
+    const vy = logoPositions[i + 1]
+    const vz = logoPositions[i + 2]
+    const h = (vx - cx) * nx + (vy - cy) * ny + (vz - cz) * nz
+    const px = vx - h * nx
+    const py = vy - h * ny
+    const pz = vz - h * nz
+    const hs = hitMask[vi] ? surfaceH[vi] : avgH
     const rel = h - midH
-    out[i] = hit[0] + rel * nx
-    out[i + 1] = hit[1] + rel * ny
-    out[i + 2] = hit[2] + rel * nz
+    out[i] = px + (hs + rel) * nx
+    out[i + 1] = py + (hs + rel) * ny
+    out[i + 2] = pz + (hs + rel) * nz
   }
   return out
 }

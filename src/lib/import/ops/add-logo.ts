@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Op } from '@/lib/design/schema'
 import type { BaseMesh, SemanticFace } from '../types'
-import { geom3ToBaseMesh, makeFrame, orientAlongNormal, recomputeMeshDerived } from './_shared'
+import { geom3ToBaseMesh, makeFrame, recomputeMeshDerived } from './_shared'
 import { extrudeLogo } from '@/lib/logo-extrude/extrude'
 import type Geom3 from '@jscad/modeling/src/geometries/geom3/type'
 
@@ -152,11 +152,32 @@ export async function applyAddLogo(
   // Lay the logo flat: rotateX(-π/2) maps standing → flat.
   // After this, the logo lies on the XY plane:
   //   - face area in XY, depth (cutterDepth) along +Z
-  //   - Z range: [-cutterDepth/2, +cutterDepth/2] (centered at origin)
+  //   - local +Y is the TEXT'S UP, local +X its reading direction
   let flat = transforms.rotateX(-Math.PI / 2, logoResult.geom3 as never) as Geom3
 
-  // Orient +Z to the placement normal (same logic as hole.ts orientAlongNormal).
-  flat = orientAlongNormal(flat, placeNormal, transforms)
+  // Orient with an EXPLICIT upright basis, not the minimal +Z→normal
+  // rotation: the minimal rotation leaves the in-plane roll arbitrary, which
+  // happened to be upright on front (−Y) faces but tilted/laid the text on
+  // side and diagonal faces (prod, 2026-08-02). Columns: X→t (reading
+  // direction), Y→u (up = world +Z projected onto the face; −Y for top /
+  // bottom faces so text reads from the front), Z→n.
+  {
+    const n = placeNormal
+    const upRef: [number, number, number] =
+      Math.abs(n[2]) < 0.99 ? [0, 0, 1] : [0, -1, 0]
+    let tX = upRef[1] * n[2] - upRef[2] * n[1]
+    let tY = upRef[2] * n[0] - upRef[0] * n[2]
+    let tZ = upRef[0] * n[1] - upRef[1] * n[0]
+    const tLen = Math.hypot(tX, tY, tZ) || 1
+    tX /= tLen; tY /= tLen; tZ /= tLen
+    const uX = n[1] * tZ - n[2] * tY
+    const uY = n[2] * tX - n[0] * tZ
+    const uZ = n[0] * tY - n[1] * tX
+    flat = transforms.transform(
+      [tX, tY, tZ, 0, uX, uY, uZ, 0, n[0], n[1], n[2], 0, 0, 0, 0, 1],
+      flat as never,
+    ) as Geom3
+  }
 
   // Compute tangent frame for in-plane offset.
   const { tangent, bitangent } = makeFrame(placeNormal)

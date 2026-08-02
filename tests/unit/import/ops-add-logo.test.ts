@@ -77,3 +77,41 @@ describe('applyAddLogo', () => {
     expect(out.bbox.size[2]).toBeLessThan(30.3)
   })
 })
+
+describe('upright orientation on side faces (prod regression 2026-08-02)', () => {
+  it('keeps a tall glyph vertical when placed on a +X side face', async () => {
+    // Tall bar PNG (1:3 aspect): after placement its long axis must follow
+    // world +Z (text upright), not lie sideways along +Y — the minimal
+    // +Z→normal rotation left the roll arbitrary on side faces.
+    const sharp = (await import('sharp')).default
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="180">' +
+      '<rect width="60" height="180" fill="white"/>' +
+      '<rect x="15" y="10" width="30" height="160" fill="black"/></svg>'
+    const png = await sharp(Buffer.from(svg)).png().toBuffer()
+
+    const cubeFaces = segmentFaces(cube)
+    const sideFace = cubeFaces.findIndex((f) => Math.abs(f.normal[0] - 1) < 0.01)
+    const out = await applyAddLogo(cube, {
+      op: 'add_logo', faceId: sideFace, imageUrl: 'http://mock/logo.png',
+      sizeMm: 15, depthMm: 0.6, treatment: 'embossed', offsetMm: [0, 0],
+    } as never, cubeFaces, png)
+
+    // Measure the B (logo) body extents
+    let minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity
+    out.extruders.forEach((e, t) => {
+      if (e !== 'B') return
+      for (let k = 0; k < 9; k += 3) {
+        const y = out.positions[t * 9 + k + 1]
+        const z = out.positions[t * 9 + k + 2]
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+        if (z < minZ) minZ = z
+        if (z > maxZ) maxZ = z
+      }
+    })
+    const ySpan = maxY - minY
+    const zSpan = maxZ - minZ
+    // 1:3 bar → upright means Z-span ~3x the Y-span
+    expect(zSpan).toBeGreaterThan(ySpan * 1.8)
+  })
+})
