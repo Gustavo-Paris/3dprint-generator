@@ -86,10 +86,10 @@ ${last}
 
 ${isMeshyConfigured()
   ? 'FREEFORM AVAILABLE: if the request is an organic / figurative / irregular object (animal, character, creature, bust, sculpture, toy) that NO primitive fits, output {"kind":"freeform","prompt":"<concise English description optimized for 3D generation>"}.'
-  : 'FREEFORM UNAVAILABLE: never output kind:"freeform"; collapse organic requests to the closest primitive.'}
+  : 'FREEFORM UNAVAILABLE: still output kind:"freeform" for truly organic/figurative requests (the app will explain the feature is not configured). NEVER collapse an uncovered request into a box or other primitive — for functional/geometric objects use kind:"parametric_code" instead.'}
 
 Reply with ONLY valid JSON matching the schema. No markdown, no prose, no \`\`\` fences.`,
-    maxOutputTokens: 800,
+    maxOutputTokens: 1500,
     abortSignal: AbortSignal.timeout(60_000),
   })
 
@@ -106,7 +106,7 @@ Reply with ONLY valid JSON matching the schema. No markdown, no prose, no \`\`\`
       `ERROR: ${first.error}\n` +
       `YOUR PREVIOUS REPLY:\n${text.slice(0, 1000)}\n\n` +
       `Reply again with ONLY valid JSON matching the schema. No markdown, no prose.`,
-    maxOutputTokens: 800,
+    maxOutputTokens: 1500,
     abortSignal: AbortSignal.timeout(60_000),
   })
   const second = tryParseDesign(repaired)
@@ -161,6 +161,8 @@ Common iterations:
 - "buraco em cima" / "hole on top"  → "top"
 
 If the LATEST MESSAGE describes a COMPLETELY DIFFERENT object (e.g., previous was "porta-lata", now "chaveiro"), discard the PREVIOUS DESIGN and start fresh.
+
+parametric_code iterations: update the "spec" to reflect the change AND copy the previous "code" field verbatim into your output (the code generator uses it as the starting point). Never edit or write the code yourself.
 
 
 
@@ -242,6 +244,12 @@ NOTE: parts[i].primitive is an OBJECT (with its own "kind" and dims), NOT a stri
 
 flat_plate has an extra optional field 'orientation: "flat" | "vertical"'.
 
+{ "kind": "parametric_code",
+  "spec": "<detailed ENGLISH spec: what the object is, overall dimensions in mm, every functional feature (angles, lips, slots, holes, clearances), and real-world dimensions of any device it must fit>",
+  "code": <copy verbatim from PREVIOUS DESIGN when iterating on a parametric_code design; omit on a fresh design — NEVER write code yourself>,
+  "extruder": "A" | "B" (default "A") }
+A stronger model turns your spec into CAD code, so the spec is the whole design brief: include concrete numbers (look up device dimensions you know — e.g. iPhone 17 Pro Max body ≈ 78 × 163 × 8.5 mm, add 2-3 mm for a case) and name every feature explicitly.
+
 { "kind": "freeform",
   "prompt": "<concise English description optimized for 3D generation>",
   "sourceImageUrl": "<url>" | omit,
@@ -274,9 +282,10 @@ By default, the main body uses Extruder "A" and the logo uses Extruder "B" (mult
 - custom_keychain — chaveiro personalizado cuja base acompanha a silhueta do logo: "chaveiro personalizado", "chaveiro com formato da logo", "chaveiro silhueta".
 - flat_plate — rectangular keychains (chaveiro retangular), magnets (ímãs), desk plaques (plaquinha), nameplates.
 - disc — round flat things: coasters (porta-copo), medals (medalha), round pendants.
-- box — solid rectangular block / cube: "cubo", "caixa", "bloco", "dado", "base sólida retangular". A true 3D volume (width×depth×height). For THIN flat items prefer flat_plate; use box when depth/height matter (a real cube/block). A cube = width = depth = height.
+- box — solid rectangular block / cube: "cubo", "caixa", "bloco", "dado", "base sólida retangular". A true 3D volume (width×depth×height). For THIN flat items prefer flat_plate; use box when depth/height matter (a real cube/block). A cube = width = depth = height. NEVER use box as a fallback for a functional object the user named (suporte, stand, organizador, gancho, dock) — that is what parametric_code is for.
 - bookmark — bookmarks (marca-página).
 - pin — lapel pins, badges, buttons (pin, botão, badge, broche). Default position is bottom_face and engraved.
+- parametric_code — ANY functional / geometric object the primitives above don't cover: suportes e stands (celular, tablet, notebook, fone, controle, caneta), organizadores, bandejas, ganchos, suportes de parede, docks, clips, brackets, porta-cartões, bases com encaixe. If the user names a real object with a function and no primitive matches it, this is the right kind — never approximate it with a box or plate.
 
 # Examples
 
@@ -297,6 +306,12 @@ User: "chaveiro com a logo em baixo relevo com textura colmeia"
 
 User: "porta-lata pra Monster 473ml com a logo"
 → {"kind":"hollow_cylinder","insideDiameterMm":60,"heightMm":100,"wallMm":3,"baseMm":3,"logo":{"treatment":"through_cut","position":"front_face","sizeRatio":0.5}}
+
+User: "projete um suporte de mesa para um iPhone 17 Pro Max"
+→ {"kind":"parametric_code","spec":"Desk phone stand for an iPhone 17 Pro Max. Device body ≈ 78 × 163 × 8.5 mm; assume a case, so design for 82 mm width and 12 mm thickness. Base plate ~96 × 100 × 5 mm with rounded corners; backrest plate at ~62° from horizontal, ~95 mm tall, joined solidly to the base; front lip 14 mm tall spaced 12 mm in front of the backrest to cradle the phone; 14 mm wide charging-cable slot cut through the center of the lip and the base under it; min wall 4 mm; all visible edges rounded."}
+
+User: "suporte de parede pra pendurar fone de ouvido"
+→ {"kind":"parametric_code","spec":"Wall-mounted headphone hanger. Vertical back plate ~60 × 80 × 5 mm with two countersunk screw holes (4 mm diameter, 40 mm apart vertically, centered); a horizontal J-hook arm protruding 55 mm from the plate, 20 mm wide, 8 mm thick, with a 12 mm upturned tip and a rounded saddle top ~24 mm wide to rest the headband on; fillet where the arm meets the plate; no supports needed — flat back prints against the bed."}
 
 User: "troféu com base redonda e placa em pé com a logo"
 → {"kind":"composite","parts":[

@@ -89,6 +89,7 @@ export async function generateFromDesign(
     case 'pin':             result = await buildPin(design, ctx); break
     case 'custom_keychain': result = await buildCustomKeychain(design, ctx); break
     case 'mug':             result = await buildMug(design, ctx); break
+    case 'parametric_code': result = await buildParametricCode(design); break
     case 'imported': {
       const { loadBaseMeshFromUrl } = await import('@/lib/import/load-base-mesh')
       const { applyEdits } = await import('@/lib/import/apply-edits')
@@ -196,6 +197,48 @@ function filterByExtruder(
     }
   }
   return new Float32Array(out)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// parametric_code — LLM-authored JSCAD with an execute→validate→repair loop
+// ────────────────────────────────────────────────────────────────────────────
+
+const CODEGEN_MAX_ATTEMPTS = 3
+
+async function buildParametricCode(
+  d: Extract<Design, { kind: 'parametric_code' }>,
+): Promise<InternalBuildResult> {
+  const { generateParametricCode, executeParametricCode } = await import('./codegen')
+
+  let lastError: { code: string; error: string } | null = null
+  for (let attempt = 1; attempt <= CODEGEN_MAX_ATTEMPTS; attempt++) {
+    const code = await generateParametricCode({
+      spec: d.spec,
+      previousCode: d.code ?? null,
+      errorFeedback: lastError,
+    })
+    try {
+      const executed = await executeParametricCode(code)
+      // Persist the working source on the design: the route stores the design
+      // object AFTER this builder runs, so iterations get the code back as
+      // previousDesign and "make it taller" edits instead of regenerating.
+      d.code = code
+      return {
+        bodies: [{ positions: executed.positions, extruder: d.extruder ?? 'A', label: 'Body' }],
+        meta: { kind: 'parametric_code', bboxMm: executed.bboxMm },
+      }
+    } catch (err) {
+      lastError = { code, error: (err as Error).message }
+      console.warn(
+        `[generate:parametric_code] attempt ${attempt}/${CODEGEN_MAX_ATTEMPTS} failed:`,
+        (err as Error).message,
+      )
+    }
+  }
+  throw new Error(
+    `código paramétrico falhou após ${CODEGEN_MAX_ATTEMPTS} tentativas — ` +
+    `último erro: ${lastError?.error ?? 'desconhecido'}`,
+  )
 }
 
 // ────────────────────────────────────────────────────────────────────────────

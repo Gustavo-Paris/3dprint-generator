@@ -47,6 +47,9 @@ function designSummary(design: unknown): string {
     if (d.hangingHole) parts.push('com furo')
   } else if (kind === 'box') {
     parts.push(`caixa ${d.widthMm}×${d.depthMm}×${d.heightMm}mm`)
+  } else if (kind === 'parametric_code') {
+    const spec = String(d.spec ?? '')
+    parts.push(`peça sob medida — ${spec.length > 90 ? `${spec.slice(0, 90)}…` : spec}`)
   } else if (kind === 'imported') {
     parts.push('importado')
     const edits = Array.isArray(d.edits) ? d.edits as Array<Record<string, unknown>> : []
@@ -90,6 +93,7 @@ export function designDetails(design: unknown): string[] {
     disc: 'Disco',
     box: 'Caixa',
     imported: 'Malha importada (edições sobre o arquivo)',
+    parametric_code: 'Peça sob medida (código paramétrico gerado por IA)',
     freeform: 'Forma livre (gerada por IA)',
     flexified: 'Brinquedo articulado',
   }
@@ -105,6 +109,8 @@ export function designDetails(design: unknown): string[] {
   } else if (kind === 'imported') {
     const edits = Array.isArray(d.edits) ? d.edits.length : 0
     if (edits > 0) lines.push(`Edições aplicadas: ${edits}`)
+  } else if (kind === 'parametric_code') {
+    lines.push(`Especificação: ${String(d.spec ?? '')}`)
   }
   const logo = d.logo as Record<string, unknown> | undefined
   if (logo) {

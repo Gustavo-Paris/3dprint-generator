@@ -25,6 +25,9 @@ export function tryQuickModify(message: string, prev: Design | null): Design | n
   // Composites have ambiguous targets ("logo maior" — which part's logo?).
   // Fall through to the LLM, which sees the full structure and decides.
   if (prev.kind === 'composite') return null
+  // parametric_code changes go through spec + code regeneration — a numeric
+  // bump on the design object can't reach inside the generated code.
+  if (prev.kind === 'parametric_code') return null
   const m = message.toLowerCase().trim()
 
   // ── Logo size ────────────────────────────────────────────────────────

@@ -376,6 +376,25 @@ const Composite = z.object({
 })
 
 /**
+ * LLM-authored parametric code — functional/geometric objects the fixed
+ * primitives can't express (phone stands, organizers, hooks, brackets, docks).
+ * The classifier emits a precise `spec`; the main model then writes JSCAD
+ * code for it inside generateFromDesign, with an execute→validate→repair loop.
+ */
+const ParametricCode = z.object({
+  kind: z.literal('parametric_code'),
+  /** Precise English object spec (dimensions in mm, features, constraints). */
+  spec: z.string().min(10).max(2000),
+  /**
+   * Last WORKING JSCAD source. Filled by the generator after a successful
+   * build and carried through iterations, so "make it taller" edits the
+   * existing code instead of regenerating from scratch.
+   */
+  code: z.string().min(10).max(30_000).optional(),
+  extruder: z.enum(['A', 'B']).default('A'),
+})
+
+/**
  * Freeform / organic generation — the escape hatch the parametric primitives
  * can't cover (animals, characters, busts, irregular objects). Routed to Meshy
  * (text-to-3D, or image-to-3D when `sourceImageUrl` is set).
@@ -402,6 +421,7 @@ export const Design = z.discriminatedUnion('kind', [
   CustomKeychain,
   Mug,
   Imported,
+  ParametricCode,
   Freeform,
 ])
 export type Design = z.infer<typeof Design>
