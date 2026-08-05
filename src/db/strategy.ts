@@ -7,7 +7,7 @@ export const iterationStrategies = [
   'parametric', 'generative',
   'hollow_cylinder', 'flat_plate', 'disc', 'bookmark', 'pin',
   'custom_keychain', 'mug', 'imported', 'composite', 'freeform', 'flexified',
-  'parametric_code',
+  'parametric_code', 'box',
 ] as const
 export type IterationStrategy = (typeof iterationStrategies)[number]
 

@@ -1,0 +1,2 @@
+ALTER TABLE "iterations" DROP CONSTRAINT "iterations_strategy_check";--> statement-breakpoint
+ALTER TABLE "iterations" ADD CONSTRAINT "iterations_strategy_check" CHECK ("iterations"."strategy" IN ('parametric', 'generative', 'hollow_cylinder', 'flat_plate', 'disc', 'bookmark', 'pin', 'custom_keychain', 'mug', 'imported', 'composite', 'freeform', 'flexified', 'parametric_code', 'box'));

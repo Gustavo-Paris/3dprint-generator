@@ -35,7 +35,14 @@ Either set them as env (`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`, and
 1. New project → deploy from the GitHub repo. Add a Postgres plugin.
 2. Set the env vars above (`DATABASE_URL` is provided by the plugin).
 3. Build: `pnpm build` · Start: `pnpm start`.
-4. Run `pnpm db:migrate` as a one-off (or a release/predeploy step).
+4. Migrations run automatically: `railway.json` sets
+   `preDeployCommand: node scripts/migrate.mjs`. It uses drizzle-orm's migrator
+   (a runtime dep — `drizzle-kit` is a devDependency and may not survive a
+   production install) and exits non-zero on failure, so a bad migration aborts
+   the deploy and the previous release keeps serving.
+
+This repo is **not** wired to auto-deploy from GitHub (see CHORE-006); ship with
+`railway up --service 3dprint-generator --ci` from the repo root.
 
 ### Vercel
 
@@ -55,7 +62,7 @@ slicer offline.
 ## Post-deploy checklist
 
 - [ ] `AUTH_URL` set to the real origin (prod refuses to boot without it).
-- [ ] Migrations applied (`pnpm db:migrate`).
+- [ ] Migrations applied (automatic via `preDeployCommand`; confirm in deploy logs).
 - [ ] Sign in works (magic link arrives; your email is in `AUTH_ALLOWED_EMAILS`).
 - [ ] **⚙ Configurações** → AI provider configured; a parametric request renders.
 - [ ] (Optional) Meshy key set → a freeform request renders.
