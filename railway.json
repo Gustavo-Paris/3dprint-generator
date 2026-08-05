@@ -4,6 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
+    "preDeployCommand": "node scripts/migrate.mjs",
     "startCommand": "mkdir -p /data/uploads /data/meshes && rm -rf public/uploads public/meshes && ln -sfn /data/uploads public/uploads && ln -sfn /data/meshes public/meshes && pnpm start",
     "healthcheckPath": "/",
     "healthcheckTimeout": 120,

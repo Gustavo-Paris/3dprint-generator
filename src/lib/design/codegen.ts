@@ -199,6 +199,14 @@ const { primitives, booleans, transforms, extrusions, expansions, geometries, ma
 - expansions.expand({ delta, corners:'round' }, g), offset
 - All primitives are centered at the origin by default — use \`center:\` or translate.
 
+# Gotchas that WILL throw
+
+- \`roundedCuboid\`: \`roundRadius\` must be STRICTLY LESS than half of the SMALLEST size component. A 100×120×6 plate allows roundRadius < 3 — so use 1.5-2, or plain \`cuboid\` for thin plates and round only the tall parts.
+- \`roundedCylinder\`: \`roundRadius\` must be < radius AND < height/2.
+- \`transforms.rotate*\` take RADIANS (\`deg * Math.PI / 180\`), never degrees.
+- \`subtract\` tools must fully cross the solid they cut — oversize them (+2mm each side); a tool that ends exactly on a face leaves a zero-thickness wall.
+- Never leave two solids merely touching: overlap ≥0.5mm before \`union\`, or the result is two shells, not one printable part.
+
 # 3D-printing rules (FDM, 0.4mm nozzle)
 
 - Min wall thickness 2mm; min feature 1.5mm.
