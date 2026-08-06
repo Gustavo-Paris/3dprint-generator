@@ -25,28 +25,32 @@ describe('requestFlexify', () => {
     expect(r).toEqual({ iterationId: 'it-1', meshUrl: 'https://blob/x.3mf', meshBase64: null })
   })
 
-  it('throws with the JSON {error} message on a 500 (route returns JSON on flexify failure)', async () => {
+  it('throws with apiError.message on a 500 envelope', async () => {
     const fetchImpl = vi.fn(async () =>
-      jsonResponse({ error: 'Flexify failed to process the mesh.', iteration_id: 'it-2' }, 500),
+      jsonResponse(
+        { error: { code: 'flexify_failed', message: 'Falha ao processar a malha.' }, iteration_id: 'it-2' },
+        500,
+      ),
     )
     await expect(
       requestFlexify('p', fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow('Flexify failed to process the mesh.')
+    ).rejects.toThrow('Falha ao processar a malha.')
   })
 
-  it('throws with the plain-text body on a 4xx (route returns text for validation/auth errors)', async () => {
+  it('throws generic PT-BR on plain-text 4xx (never dumps raw body)', async () => {
     const fetchImpl = vi.fn(
       async () => new Response('No source mesh: generate or upload a mesh first', { status: 400 }),
     )
     await expect(
       requestFlexify('p', fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow('No source mesh')
+    ).rejects.toThrow(/Algo deu errado \(HTTP 400\)/)
   })
 
-  it('falls back to a status-coded message when the error body is empty', async () => {
+  it('falls back to generic PT-BR when the error body is empty', async () => {
     const fetchImpl = vi.fn(async () => new Response('', { status: 403 }))
     await expect(
       requestFlexify('p', fetchImpl as unknown as typeof fetch),
-    ).rejects.toThrow('403')
+    ).rejects.toThrow(/Algo deu errado \(HTTP 403\)/)
   })
 })
+
