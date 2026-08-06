@@ -21,4 +21,10 @@ describe('resultLabel', () => {
     expect(resultLabel({ kind: 'flat_plate', bbox_mm: { x: 50, y: 80, z: 4 } }))
       .toBe('Placa / chaveiro (50×80×4 mm)')
   })
+
+  it('labels freeform, flexified and LSF kinds', () => {
+    expect(resultLabel({ kind: 'freeform' })).toBe('Modelo freeform')
+    expect(resultLabel({ kind: 'flexified' })).toBe('Modelo articulado (flexi)')
+    expect(resultLabel({ kind: 'lsf_maquette' })).toBe('Maquete LSF')
+  })
 })

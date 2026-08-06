@@ -10,6 +10,7 @@ import {
   LSF_SCALE_PRESETS,
 } from '@/lib/lsf/detect-intent'
 import { lsfProgressLabel } from '@/lib/lsf/progress'
+import { buildLsfFichaMarkdown } from '@/lib/lsf/ficha'
 
 /** Starter prompts shown in the empty chat so the workspace isn't a blank panel
  *  (design critique P0-2). Clicking one fills the composer (PT-BR, on purpose). */
@@ -399,13 +400,36 @@ export default function Chat({
         ...m.slice(0, -1),
         {
           role: 'assistant',
-          text: `Maquete LSF pronta (1:${opts.scale}). Esqueleto steel frame — pode fatiar no H2D.`,
+          text: `Maquete LSF pronta (1:${opts.scale}). Esqueleto steel frame — pode fatiar no H2D. Baixe a ficha técnica se precisar no campo.`,
           design,
           iterationId: body.iteration_id,
           strategy: 'lsf_maquette',
           status: 'ready',
         },
       ])
+      // Phase D lite: one-pager markdown (not full PDF stack).
+      try {
+        const md = buildLsfFichaMarkdown({
+          scale: opts.scale,
+          minTMm: opts.minTMm,
+          fitBed: opts.fitBed,
+          ifcName: opts.ifcName,
+          meshUrl: body.mesh_url,
+          meta: (body as { meta?: Record<string, unknown> }).meta ?? null,
+        })
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+        const href = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = href
+        a.download = `ficha-lsf-1-${opts.scale}.md`
+        a.rel = 'noopener'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(href), 2000)
+      } catch {
+        // Non-fatal — maquete already ready.
+      }
       if (body.mesh_url) {
         onMeshUploaded?.(body.mesh_url)
         onResult({

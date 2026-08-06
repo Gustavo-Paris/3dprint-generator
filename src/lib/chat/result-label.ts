@@ -1,5 +1,5 @@
 export type GenerateMeta = {
-  kind?: 'hollow_cylinder' | 'flat_plate' | 'disc' | 'box'
+  kind?: string
   bbox_mm?: { x: number; y: number; z: number }
 }
 
@@ -8,6 +8,16 @@ const LABEL_BY_KIND: Record<string, string> = {
   flat_plate: 'Placa / chaveiro',
   disc: 'Disco / medalha',
   box: 'Caixa / cubo',
+  bookmark: 'Marca-página',
+  pin: 'Pin / botão',
+  custom_keychain: 'Chaveiro',
+  mug: 'Caneca',
+  composite: 'Modelo composto',
+  imported: 'Malha importada',
+  freeform: 'Modelo freeform',
+  flexified: 'Modelo articulado (flexi)',
+  parametric_code: 'Modelo JSCAD',
+  lsf_maquette: 'Maquete LSF',
 }
 
 /** Human label + mm dims for the chat assistant bubble. Tolerates a missing
