@@ -19,6 +19,9 @@ export type FlexifyResult = {
   iterationId: string
   meshUrl: string | null
   meshBase64: string | null
+  /** Number of articulated bodies when the server reports it. */
+  bodyCount?: number
+  jointCount?: number
 }
 
 export async function requestFlexify(
@@ -36,10 +39,16 @@ export async function requestFlexify(
     iteration_id: string
     mesh_url: string | null
     mesh_base64: string | null
+    report?: { bodyCount?: number; jointCount?: number; componentCount?: number }
   }
+  const bodyCount =
+    body.report?.bodyCount ?? body.report?.componentCount
   return {
     iterationId: body.iteration_id,
     meshUrl: body.mesh_url ?? null,
     meshBase64: body.mesh_base64 ?? null,
+    bodyCount: typeof bodyCount === 'number' ? bodyCount : undefined,
+    jointCount:
+      typeof body.report?.jointCount === 'number' ? body.report.jointCount : undefined,
   }
 }

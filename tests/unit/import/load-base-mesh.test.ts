@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { loadBaseMeshFromBytes } from '@/lib/import/load-base-mesh'
+import {
+  loadBaseMeshFromBytes,
+  looksLikeBinaryStl,
+} from '@/lib/import/load-base-mesh'
 
 let cubeBytes: Uint8Array
 
@@ -10,6 +13,26 @@ beforeAll(async () => {
     await readFile(join(__dirname, '../../fixtures/cube-30mm.3mf')),
   )
 })
+
+function makeBinaryStl(triCount: number): Uint8Array {
+  const buf = new ArrayBuffer(84 + 50 * triCount)
+  const dv = new DataView(buf)
+  dv.setUint32(80, triCount, true)
+  for (let i = 0; i < triCount; i++) {
+    const base = 84 + i * 50
+    // triangle (0,0,0)-(1,0,0)-(0,1,0) shifted by i on X
+    dv.setFloat32(base + 12, i, true)
+    dv.setFloat32(base + 16, 0, true)
+    dv.setFloat32(base + 20, 0, true)
+    dv.setFloat32(base + 24, i + 1, true)
+    dv.setFloat32(base + 28, 0, true)
+    dv.setFloat32(base + 32, 0, true)
+    dv.setFloat32(base + 36, i, true)
+    dv.setFloat32(base + 40, 1, true)
+    dv.setFloat32(base + 44, 0, true)
+  }
+  return new Uint8Array(buf)
+}
 
 describe('loadBaseMeshFromBytes', () => {
   it('parses a 30mm cube into 12 triangles', async () => {
@@ -33,6 +56,19 @@ describe('loadBaseMeshFromBytes', () => {
       const len = Math.sqrt(nx * nx + ny * ny + nz * nz)
       expect(len).toBeCloseTo(1, 4)
     }
+  })
+
+  it('parses binary STL (Meshy freeform) into a BaseMesh', async () => {
+    const stl = makeBinaryStl(3)
+    expect(looksLikeBinaryStl(stl)).toBe(true)
+    const mesh = await loadBaseMeshFromBytes(stl)
+    expect(mesh.triangleCount).toBe(3)
+    expect(mesh.positions.length).toBe(27)
+    expect(mesh.extruders.every((e) => e === 'A')).toBe(true)
+  })
+
+  it('does not treat 3MF zip as STL', () => {
+    expect(looksLikeBinaryStl(cubeBytes)).toBe(false)
   })
 
   it('throws on invalid input', async () => {

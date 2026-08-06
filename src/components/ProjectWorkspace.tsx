@@ -81,6 +81,46 @@ export function hasImportedBase(
   })
 }
 
+/** Kinds that can receive "Logo aqui" when they have a meshBlobUrl (rm-009).
+ *  freeform Meshy meshes are STL; load-base-mesh accepts binary STL as base. */
+const LOGO_BASE_KINDS = new Set(['imported', 'freeform', 'flexified'])
+
+/**
+ * True when the studio should show "Logo aqui": imported .3mf OR freeform /
+ * flexified mesh-backed rows. Broader than hasImportedBase (which stays the
+ * gate for "Nova peça do zero" / import-edit chips).
+ */
+export function hasLogoBase(
+  history: Pick<Iteration, 'validationReport' | 'meshBlobUrl' | 'status' | 'strategy'>[],
+  pendingMeshUrl: string | null,
+): boolean {
+  if (pendingMeshUrl) return true
+  return history.some((it) => {
+    if (it.status !== 'ready' && it.status !== 'sliced') return false
+    if (!it.meshBlobUrl) return false
+    const vr = it.validationReport as { kind?: string } | null
+    const kind = vr?.kind ?? it.strategy
+    return kind != null && LOGO_BASE_KINDS.has(kind)
+  })
+}
+
+/** Latest mesh URL usable as logo/import base (freeform STL or imported 3MF). */
+export function latestLogoBaseMeshUrl(
+  history: Pick<Iteration, 'validationReport' | 'meshBlobUrl' | 'status' | 'strategy'>[],
+  pendingMeshUrl: string | null,
+): string | null {
+  if (pendingMeshUrl) return pendingMeshUrl
+  for (let i = history.length - 1; i >= 0; i--) {
+    const it = history[i]
+    if (it.status !== 'ready' && it.status !== 'sliced') continue
+    if (!it.meshBlobUrl) continue
+    const vr = it.validationReport as { kind?: string } | null
+    const kind = vr?.kind ?? it.strategy
+    if (kind && LOGO_BASE_KINDS.has(kind)) return it.meshBlobUrl
+  }
+  return null
+}
+
 /** Design kinds whose meshes can be hand-painted. Paint runs 100% client-side
  *  on whatever triangle soup is in the viewer, so any mesh-backed kind works —
  *  unlike "Logo aqui", which stays gated on `hasImportedBase` (the server op
@@ -122,9 +162,9 @@ export function suggestedLogoSizeMm(positions: Float32Array | null | undefined):
   return Math.round(Math.max(28, Math.min(140, face * 0.8)))
 }
 
-/** Body for POST /api/generate click-to-place logo. Must include pending mesh +
- *  image the same way Chat.send does — otherwise a fresh .3mf upload shows the
- *  placement UI (hasImportedBase) but the API returns 400 no_imported_mesh. */
+/** Body for POST /api/generate click-to-place logo. Must include mesh + image —
+ *  pending .3mf upload, or freeform/flexified meshBlobUrl (rm-009). Without a
+ *  meshUrl the API returns 400 no_imported_mesh. */
 export function buildLogoPlacementBody(opts: {
   projectId: string
   message: string
@@ -138,11 +178,13 @@ export function buildLogoPlacementBody(opts: {
   pendingMeshUrl: string | null
   pendingPreviews: PreviewBundle | null
   imageUrl: string | null
+  /** Freeform/flexified mesh URL when no pending upload. */
+  baseMeshUrl?: string | null
 }) {
   return {
     projectId: opts.projectId,
     message: opts.message,
-    meshUrl: opts.pendingMeshUrl ?? undefined,
+    meshUrl: opts.pendingMeshUrl ?? opts.baseMeshUrl ?? undefined,
     previewDataUrls: opts.pendingPreviews ?? undefined,
     imageUrl: opts.imageUrl ?? undefined,
     logoPlacement: opts.logoPlacement,
@@ -461,7 +503,10 @@ export default function ProjectWorkspace({
 
   const initialMessages: ChatMsg[] = mapHistoryToMessages(initialHistory)
   const importedBaseAvailable = hasImportedBase(initialHistory, pendingMeshUrl)
-  // Paint works on any mesh-backed kind (client-side); logo needs an imported base.
+  // Logo works on imported + freeform + flexified mesh rows (rm-009).
+  const logoBaseAvailable = hasLogoBase(initialHistory, pendingMeshUrl)
+  const logoBaseMeshUrl = latestLogoBaseMeshUrl(initialHistory, pendingMeshUrl)
+  // Paint works on any mesh-backed kind (client-side).
   const paintableMeshAvailable = hasPaintableMesh(initialHistory, pendingMeshUrl)
   // Multi-colour when the viewer holds more than one extruder body — slicing
   // flattens to mono (estimate only), so the result card says so.
@@ -545,6 +590,7 @@ export default function ProjectWorkspace({
             pendingMeshUrl,
             pendingPreviews,
             imageUrl: attachedImageUrl,
+            baseMeshUrl: logoBaseMeshUrl,
           }),
         ),
       })
@@ -898,7 +944,7 @@ export default function ProjectWorkspace({
             stl={stl}
             onFlexified={onResult}
           />
-          {positions && importedBaseAvailable && (
+          {positions && logoBaseAvailable && (
             <button
               type="button"
               data-testid="logo-here-btn"
@@ -1054,7 +1100,7 @@ export default function ProjectWorkspace({
         {/* Keyboard alternative to click-to-place: X/Y mm offsets from the mesh
             top-center, feeding the SAME placement handler as a canvas click.
             Shown only while pick mode is active so it never covers the toolbar. */}
-        {pickMode && positions && importedBaseAvailable && (
+        {pickMode && positions && logoBaseAvailable && (
           <fieldset className="bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-2 text-xs shadow-card text-slate-200">
             <legend className="px-1 text-slate-400">Posição do logo (teclado)</legend>
             <div className="flex flex-wrap items-center gap-2">

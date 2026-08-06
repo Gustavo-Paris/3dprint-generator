@@ -36,11 +36,13 @@ export default function FlexifyButton({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successHint, setSuccessHint] = useState<string | null>(null)
 
   async function onClick() {
     if (busy) return
     setBusy(true)
     setError(null)
+    setSuccessHint(null)
     try {
       const r = await requestFlexify(projectId)
       // Await hydration: onResult fetches + parses the multi-body 3MF in the
@@ -53,6 +55,15 @@ export default function FlexifyButton({
         meshUrl: r.meshUrl,
         meshBase64: r.meshBase64,
       })
+      if (r.bodyCount != null) {
+        setSuccessHint(
+          r.jointCount != null
+            ? `Pronto: ${r.bodyCount} peças · ${r.jointCount} juntas (print-in-place).`
+            : `Pronto: ${r.bodyCount} peças articuladas (print-in-place).`,
+        )
+      } else {
+        setSuccessHint('Pronto: malha articulada no viewer.')
+      }
     } catch (e) {
       // requestFlexify may surface the raw apiError envelope JSON as the
       // message — run it through the envelope parser so users see PT-BR.
@@ -69,18 +80,35 @@ export default function FlexifyButton({
   if (!iterationId || !stl || !is3mf) return null
 
   return (
-    <div className="flex flex-col items-start gap-2">
+    <div className="flex flex-col items-start gap-1.5" data-testid="flexify-control">
       <button
+        type="button"
+        data-testid="flexify-btn"
         onClick={onClick}
         disabled={busy}
         aria-busy={busy}
-        className="bg-slate-900/80 backdrop-blur border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm shadow-soft hover:bg-slate-800 disabled:opacity-50 font-medium transition"
-        title="Transforma a malha num brinquedo articulado, impresso já montado (~1-20s)"
+        className="rounded-lg border border-violet-500/80 bg-violet-600 px-3 py-2 text-sm font-semibold text-white shadow-soft transition hover:bg-violet-500 disabled:opacity-50 min-h-11"
+        title="Transforma a malha num brinquedo articulado print-in-place (~1-20s, multi-corpo)"
       >
-        {busy ? 'Flexibilizando… (~1-20s)' : '🦴 Tornar flexível'}
+        {busy ? 'Articulando… (~1-20s)' : '🦴 Articular (flexi)'}
       </button>
+      <p className="max-w-[14rem] text-[11px] leading-snug text-violet-200/80">
+        Print-in-place: várias peças com juntas, já montado na impressora.
+      </p>
+      {successHint && (
+        <div
+          role="status"
+          data-testid="flexify-success"
+          className="bg-violet-950/80 border border-violet-700 text-violet-100 rounded-lg px-3 py-2 text-xs max-w-xs"
+        >
+          {successHint}
+        </div>
+      )}
       {error && (
-        <div className="bg-red-950/80 backdrop-blur border border-red-800 text-red-100 rounded-lg px-3 py-2 text-xs max-w-xs whitespace-pre-wrap">
+        <div
+          role="alert"
+          className="bg-red-950/80 backdrop-blur border border-red-800 text-red-100 rounded-lg px-3 py-2 text-xs max-w-xs whitespace-pre-wrap"
+        >
           {error}
         </div>
       )}

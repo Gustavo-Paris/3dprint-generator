@@ -17,7 +17,7 @@ describe('hasPaintableMesh', () => {
   it('true for freeform meshes — paint is client-side, works on any mesh', () => {
     const history = [it_({ validationReport: { kind: 'freeform', prompt: 'a dragon' } })]
     expect(hasPaintableMesh(history, null)).toBe(true)
-    // …while the logo gate stays imported-only.
+    // Import-edit mode ("Nova peça") stays imported-only; logo has its own gate.
     expect(hasImportedBase(history, null)).toBe(false)
   })
 

@@ -11,7 +11,12 @@ function jsonResponse(obj: unknown, status = 200): Response {
 describe('requestFlexify', () => {
   it('POSTs only projectId to /api/flexify and maps the snake_case response', async () => {
     const fetchImpl = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
-      jsonResponse({ iteration_id: 'it-1', mesh_url: 'https://blob/x.3mf', mesh_base64: null }),
+      jsonResponse({
+        iteration_id: 'it-1',
+        mesh_url: 'https://blob/x.3mf',
+        mesh_base64: null,
+        report: { componentCount: 41, jointCount: 40 },
+      }),
     )
     const r = await requestFlexify('proj-123', fetchImpl as unknown as typeof fetch)
 
@@ -22,7 +27,13 @@ describe('requestFlexify', () => {
     // Front must NOT invent a meshUrl — the route resolves the latest ready mesh
     // and the allowlist only accepts server-issued URLs.
     expect(JSON.parse(init?.body as string)).toEqual({ projectId: 'proj-123' })
-    expect(r).toEqual({ iterationId: 'it-1', meshUrl: 'https://blob/x.3mf', meshBase64: null })
+    expect(r).toEqual({
+      iterationId: 'it-1',
+      meshUrl: 'https://blob/x.3mf',
+      meshBase64: null,
+      bodyCount: 41,
+      jointCount: 40,
+    })
   })
 
   it('throws with apiError.message on a 500 envelope', async () => {
