@@ -3,6 +3,7 @@
 
 ## Notes
 
+- **2026-08-06** — Logo em pedestal cilíndrico: fit room assimétrico + drape forçado + depth cap (`53774a8`). LSF maquete SaaS shipped (`7f4cbdc`).
 - **2026-08-05** — SteelPrime LSF golden + SaaS Phase C/D: strategy `lsf_maquette`, IFC upload, `POST /api/lsf-maquete`, Chat text intent + scale picker + progress UI, multi-body validity gate, slice soup path for LSF. Env `LSF_PYTHON`/`LSF_WORKER`.
 
 
