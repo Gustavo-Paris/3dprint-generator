@@ -101,7 +101,9 @@ describe('POST /api/flexify — persist/finalize tail guard', () => {
     // The row must NOT be left 'generating': a failed update was issued.
     const failedSet = setCalls.find((s) => s.status === 'failed')
     expect(failedSet).toBeDefined()
-    expect(String(failedSet!.error)).toContain('persist failed')
+    // User-safe PT-BR only — technical detail stays in logs (BUG-009 / rm-002).
+    expect(String(failedSet!.error)).toMatch(/salvar|malha/i)
+    expect(String(failedSet!.error)).not.toMatch(/blob store/i)
     // And no update ever flipped it to 'ready'.
     expect(setCalls.some((s) => s.status === 'ready')).toBe(false)
   })

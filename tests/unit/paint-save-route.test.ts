@@ -183,7 +183,7 @@ describe('POST /api/paint-save', () => {
       projectId: 'proj-1',
       userMessage: 'Pintura manual aplicada',
       status: 'generating',
-      strategy: 'generative',
+      strategy: 'imported',
     })
 
     // Real serialize3mf output reached persistMesh: a 3MF is a zip (PK magic).
@@ -263,6 +263,8 @@ describe('POST /api/paint-save', () => {
       .map((c) => c[0] as Record<string, unknown>)
       .find((s) => s.status === 'failed')
     expect(failedSet).toBeDefined()
-    expect(String(failedSet!.error)).toContain('blob down')
+    // User-safe PT-BR only — technical detail stays in logs (BUG-009 / rm-002).
+    expect(String(failedSet!.error)).toContain('Não foi possível salvar a malha pintada')
+    expect(String(failedSet!.error)).not.toContain('blob down')
   })
 })

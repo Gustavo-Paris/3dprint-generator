@@ -12,7 +12,7 @@ import SliceButton from './SliceButton'
 import DownloadStlButton from './DownloadStlButton'
 import FlexifyButton from './FlexifyButton'
 import MeshValidityBanner from './MeshValidityBanner'
-import { extractApiError } from '@/lib/http/client-error'
+import { extractApiError, userSafeErrorMessage } from '@/lib/http/client-error'
 import { runInWorker } from '@/lib/jscad/worker-client'
 import type { MeshValidityReport } from '@/lib/mesh/validity'
 import type { BaseMesh } from '@/lib/import/types'
@@ -162,7 +162,7 @@ export function mapHistoryToMessages(history: HistoryRow[]): ChatMsg[] {
     if (it.status === 'failed') {
       return [userMsg, {
         role: 'assistant' as const,
-        text: `Falhou: ${it.error ?? 'erro desconhecido'}`,
+        text: `Falhou: ${userSafeErrorMessage(it.error)}`,
         iterationId: it.id,
         status: 'failed' as const,
       }]

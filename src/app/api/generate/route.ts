@@ -278,7 +278,7 @@ export async function POST(req: Request) {
     } catch (err) {
       log.error('base mesh load/segment failed', err, { iterationId: iteration.id, meshUrl: effectiveMeshUrl })
       await db.update(iterations)
-        .set({ status: 'failed', error: `base mesh load failed: ${(err as Error).message}` })
+        .set({ status: 'failed', error: 'Não foi possível carregar a malha base.' })
         .where(eq(iterations.id, iteration.id))
       return apiError(500, 'base_mesh_failed', 'Não foi possível carregar a malha base.', { iteration_id: iteration.id })
     }
@@ -314,7 +314,7 @@ export async function POST(req: Request) {
     if (paintPlacement) {
       if (!effectiveMeshUrl) {
         await db.update(iterations)
-          .set({ status: 'failed', error: 'paintPlacement requires an imported base mesh' })
+          .set({ status: 'failed', error: 'Nenhuma malha importada para pintar.' })
           .where(eq(iterations.id, iteration.id))
         return apiError(400, 'no_imported_mesh', 'Nenhuma malha importada para pintar.', { iteration_id: iteration.id })
       }
@@ -354,7 +354,7 @@ export async function POST(req: Request) {
       // no LLM, no semantic-face guesswork. The logo lands exactly where clicked.
       if (!effectiveMeshUrl) {
         await db.update(iterations)
-          .set({ status: 'failed', error: 'logoPlacement requires an imported base mesh' })
+          .set({ status: 'failed', error: 'Nenhuma malha importada para posicionar o logo.' })
           .where(eq(iterations.id, iteration.id))
         return apiError(400, 'no_imported_mesh', 'Nenhuma malha importada para posicionar o logo.', { iteration_id: iteration.id })
       }
@@ -413,7 +413,7 @@ export async function POST(req: Request) {
   } catch (err) {
     log.error('parseDesign failed', err, { iterationId: iteration.id })
     await db.update(iterations)
-      .set({ status: 'failed', error: `design parse failed: ${(err as Error).message}` })
+      .set({ status: 'failed', error: 'Não foi possível interpretar o pedido.' })
       .where(eq(iterations.id, iteration.id))
     return apiError(500, 'design_parse_failed', 'Não foi possível interpretar o pedido.', { iteration_id: iteration.id })
   }
@@ -428,7 +428,7 @@ export async function POST(req: Request) {
     const { meshyApiKey: apiKey } = await resolveConfig()
     if (!apiKey) {
       await db.update(iterations)
-        .set({ status: 'failed', error: 'Freeform generation not configured (Meshy key missing)' })
+        .set({ status: 'failed', error: 'A geração freeform não está configurada.' })
         .where(eq(iterations.id, iteration.id))
       return apiError(503, 'freeform_unavailable', 'A geração freeform não está configurada.', { iteration_id: iteration.id })
     }
@@ -442,14 +442,14 @@ export async function POST(req: Request) {
     } catch (err) {
       log.error('meshy threw', err, { iterationId: iteration.id })
       await db.update(iterations)
-        .set({ status: 'failed', error: `meshy failed: ${(err as Error).message}` })
+        .set({ status: 'failed', error: 'A geração freeform falhou.' })
         .where(eq(iterations.id, iteration.id))
       return apiError(502, 'meshy_failed', 'A geração freeform falhou.', { iteration_id: iteration.id })
     }
     if (!meshy.ok) {
       log.error('meshy failed', new Error(meshy.error), { iterationId: iteration.id })
       await db.update(iterations)
-        .set({ status: 'failed', error: `meshy failed: ${meshy.error}` })
+        .set({ status: 'failed', error: 'A geração freeform falhou.' })
         .where(eq(iterations.id, iteration.id))
       return apiError(502, 'meshy_failed', 'A geração freeform falhou.', { iteration_id: iteration.id })
     }
@@ -461,7 +461,7 @@ export async function POST(req: Request) {
     } catch (err) {
       log.error('generator failed', err, { iterationId: iteration.id })
       await db.update(iterations)
-        .set({ status: 'failed', error: `build failed: ${(err as Error).message}` })
+        .set({ status: 'failed', error: 'Não foi possível gerar a peça.' })
         .where(eq(iterations.id, iteration.id))
       return apiError(500, 'build_failed', 'Não foi possível gerar a peça.', { iteration_id: iteration.id })
     }
@@ -544,7 +544,7 @@ export async function POST(req: Request) {
     }
 
     return Response.json({
-      strategy: 'generative',
+      strategy: designKindToStrategy(design.kind),
       iteration_id: iteration.id,
       mesh_url: meshUrl,
       mesh_base64: null,
@@ -560,7 +560,7 @@ export async function POST(req: Request) {
   } catch (err) {
     log.error('persist/finalize failed', err, { iterationId: iteration.id })
     await db.update(iterations)
-      .set({ status: 'failed', error: `persist failed: ${(err as Error).message}` })
+      .set({ status: 'failed', error: 'Não foi possível salvar a peça gerada.' })
       .where(eq(iterations.id, iteration.id))
     return apiError(500, 'persist_failed', 'Não foi possível salvar a peça gerada.', { iteration_id: iteration.id })
   }

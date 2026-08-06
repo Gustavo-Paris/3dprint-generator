@@ -17,21 +17,13 @@ describe('findOrCreateUser', () => {
     emails.length = 0
   })
 
-  it('documents the naive check-then-insert race (root cause)', async () => {
-    const email = `race-naive-${randomUUID()}@example.com`
-    emails.push(email)
-
-    const naive = () =>
-      db.query.users.findFirst({ where: eq(users.email, email) }).then(async (u) => {
-        if (u) return u.id
-        const [ins] = await db.insert(users).values({ email }).returning()
-        return ins.id
-      })
-
-    const results = await Promise.allSettled(Array.from({ length: 8 }, naive))
-    // At least one concurrent INSERT loses the unique-constraint race.
-    expect(results.some((r) => r.status === 'rejected')).toBe(true)
-  })
+  /**
+   * Historical root cause (kept as a comment, not a flaky assertion): a naive
+   * findFirst → insert races on UNIQUE(email). Under light load the race often
+   * does NOT fire, so asserting "at least one rejection" was red on CI even
+   * though production already uses ON CONFLICT (findOrCreateUser). The real
+   * gate is the concurrent-safe test below.
+   */
 
   it('resolves concurrent first-logins to a single user without throwing', async () => {
     const email = `race-safe-${randomUUID()}@example.com`

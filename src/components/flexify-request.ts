@@ -10,25 +10,15 @@
  *     route resolves the project's latest ready mesh itself, and its allowlist
  *     rejects any URL the server didn't issue (SSRF / path-traversal defense).
  *   - Success → JSON `{ iteration_id, mesh_url, mesh_base64, ... }`.
- *   - Failure → JSON `{ error }` on a 500 (pipeline error), or a plain-text body
- *     on 4xx (auth / validation). extractError handles both shapes.
+ *   - Failure → JSON `{ error: { code, message } }` envelope (extractApiError).
  */
+
+import { extractApiError } from '@/lib/http/client-error'
 
 export type FlexifyResult = {
   iterationId: string
   meshUrl: string | null
   meshBase64: string | null
-}
-
-async function extractError(res: Response): Promise<string> {
-  const text = await res.text()
-  try {
-    const json = JSON.parse(text) as { error?: unknown }
-    if (typeof json.error === 'string' && json.error) return json.error
-  } catch {
-    // Not JSON — fall through to the raw text.
-  }
-  return text || `Flexify request failed (${res.status})`
 }
 
 export async function requestFlexify(
@@ -40,7 +30,7 @@ export async function requestFlexify(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ projectId }),
   })
-  if (!res.ok) throw new Error(await extractError(res))
+  if (!res.ok) throw new Error(await extractApiError(res))
 
   const body = (await res.json()) as {
     iteration_id: string

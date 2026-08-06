@@ -45,7 +45,7 @@ describe('/api/generate (Design → parametric generator)', () => {
     )
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.strategy).toBe('generative')
+    expect(body.strategy).toBe('flat_plate')
     expect(body.iteration_id).toBeDefined()
     expect(body.mesh_url).toBeTruthy()
     expect(body.meta.kind).toBe('flat_plate')

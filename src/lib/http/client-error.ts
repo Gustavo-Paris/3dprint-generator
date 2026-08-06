@@ -40,3 +40,26 @@ export function extractApiError(
     () => generic(res.status),
   )
 }
+
+/**
+ * Sanitize a stored iteration.error (or any thrown message) before showing it
+ * in chat. Server rows used to hold raw `err.message` (SQL, stacks, path dumps);
+ * new writes use short PT-BR, but history reload still needs a belt.
+ */
+const TECHNICAL_RE =
+  /\b(select|insert|update|delete|from\s+"|relation |constraint |violates |ECONN|ENOENT|at\s+\S+\s+\(|\/Users\/|\/home\/|node_modules|SyntaxError|TypeError)\b/i
+
+export function userSafeErrorMessage(
+  raw: string | null | undefined,
+  fallback = 'Algo deu errado ao gerar. Tente de novo.',
+): string {
+  if (!raw) return fallback
+  const trimmed = raw.trim()
+  if (!trimmed) return fallback
+  // Already short and clean — keep (cap length).
+  if (trimmed.length <= 160 && !TECHNICAL_RE.test(trimmed) && !trimmed.includes('\n')) {
+    // Strip accidental "Error: " prefix from Error.toString()
+    return trimmed.replace(/^Error:\s*/i, '')
+  }
+  return fallback
+}

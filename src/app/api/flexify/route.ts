@@ -152,7 +152,7 @@ export async function POST(req: Request) {
     // Detail stays server-side (log + DB row); the client gets a generic message.
     log.error('flexify failed', err, { projectId, iterationId: iteration.id })
     await db.update(iterations)
-      .set({ status: 'failed', error: `flexify failed: ${(err as Error).message}` })
+      .set({ status: 'failed', error: 'Falha ao processar a malha.' })
       .where(eq(iterations.id, iteration.id))
     return apiError(500, 'flexify_failed', 'Falha ao processar a malha.', { iteration_id: iteration.id })
   }
@@ -176,7 +176,7 @@ export async function POST(req: Request) {
       .where(eq(projects.id, projectId))
 
     return Response.json({
-      strategy: 'generative',
+      strategy: 'flexified',
       iteration_id: iteration.id,
       mesh_url: meshUrlOut,
       mesh_base64: null,
@@ -185,7 +185,7 @@ export async function POST(req: Request) {
   } catch (err) {
     log.error('persist/finalize failed', err, { projectId, iterationId: iteration.id })
     await db.update(iterations)
-      .set({ status: 'failed', error: `persist failed: ${(err as Error).message}` })
+      .set({ status: 'failed', error: 'Não foi possível salvar a malha articulada.' })
       .where(eq(iterations.id, iteration.id))
     return apiError(500, 'persist_failed', 'Não foi possível salvar a peça gerada.', { iteration_id: iteration.id })
   }

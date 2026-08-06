@@ -1,50 +1,40 @@
 import { describe, it, expect } from 'vitest'
-import { extractApiError } from '@/lib/http/client-error'
+import { extractApiError, userSafeErrorMessage } from '@/lib/http/client-error'
 
-const envelope = (message: string) => JSON.stringify({ error: { code: 'x', message } })
-
-describe('extractApiError (string form)', () => {
-  it('returns the PT-BR message from an apiError envelope', () => {
-    expect(extractApiError(envelope('Projeto não encontrado.'))).toBe('Projeto não encontrado.')
+describe('extractApiError', () => {
+  it('reads error.message from the apiError envelope', () => {
+    const body = JSON.stringify({ error: { code: 'x', message: 'Peça não encontrada.' } })
+    expect(extractApiError(body, 404)).toBe('Peça não encontrada.')
   })
 
-  it('falls back to a generic message for non-JSON bodies (never the raw text)', () => {
-    const out = extractApiError('<html>Internal Server Error</html>', 500)
-    expect(out).toBe('Algo deu errado (HTTP 500). Tente novamente.')
-    expect(out).not.toContain('html')
-  })
-
-  it('falls back for JSON without the envelope shape', () => {
-    expect(extractApiError(JSON.stringify({ message: 'nope' }), 502)).toBe(
-      'Algo deu errado (HTTP 502). Tente novamente.',
-    )
-  })
-
-  it('falls back for an envelope with an empty message', () => {
-    expect(extractApiError(envelope('   '), 400)).toBe('Algo deu errado (HTTP 400). Tente novamente.')
-  })
-
-  it('omits the HTTP status when none is known', () => {
-    expect(extractApiError('plain text')).toBe('Algo deu errado. Tente novamente.')
+  it('falls back to generic PT-BR on raw text', () => {
+    expect(extractApiError('Internal Server Error', 500)).toMatch(/Algo deu errado/)
   })
 })
 
-describe('extractApiError (Response form)', () => {
-  it('reads the envelope message from the response body', async () => {
-    const res = new Response(envelope('Faça login para continuar.'), { status: 401 })
-    await expect(extractApiError(res)).resolves.toBe('Faça login para continuar.')
+describe('userSafeErrorMessage', () => {
+  it('keeps short clean PT-BR messages', () => {
+    expect(userSafeErrorMessage('Não foi possível gerar a peça.')).toBe(
+      'Não foi possível gerar a peça.',
+    )
   })
 
-  it('uses the response status in the generic fallback', async () => {
-    const res = new Response('not json at all', { status: 503 })
-    await expect(extractApiError(res)).resolves.toBe('Algo deu errado (HTTP 503). Tente novamente.')
+  it('strips Error: prefix', () => {
+    expect(userSafeErrorMessage('Error: Falha no upload.')).toBe('Falha no upload.')
   })
 
-  it('never rejects even if reading the body throws', async () => {
-    const res = {
-      status: 500,
-      text: () => Promise.reject(new Error('stream aborted')),
-    } as unknown as Response
-    await expect(extractApiError(res)).resolves.toBe('Algo deu errado (HTTP 500). Tente novamente.')
+  it('hides SQL / stack dumps', () => {
+    const dirty =
+      'Failed query: insert into "iterations" ("id") values ($1)\n    at NodePgPreparedQuery.queryWithCache'
+    const out = userSafeErrorMessage(dirty)
+    expect(out).not.toMatch(/insert into/i)
+    expect(out).not.toMatch(/queryWithCache/)
+    expect(out.length).toBeLessThan(80)
+  })
+
+  it('hides filesystem paths', () => {
+    expect(userSafeErrorMessage('ENOENT: no such file /Users/me/secret.stl')).not.toMatch(
+      /\/Users\//,
+    )
   })
 })

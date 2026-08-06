@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { resultLabel } from '@/lib/chat/result-label'
-import { extractApiError } from '@/lib/http/client-error'
+import { extractApiError, userSafeErrorMessage } from '@/lib/http/client-error'
 import { BrandMark } from '@/components/Brand'
 import {
   detectLsfIntent,
@@ -156,7 +156,7 @@ type Msg = {
   role: 'user' | 'assistant'
   text: string
   iterationId?: string
-  strategy?: 'parametric' | 'generative'
+  strategy?: string
   imageUrl?: string
   /** Iteration status (set by history hydration). Ready/sliced rows become
    *  navigable versions ("Ver esta versão"). */
@@ -379,7 +379,12 @@ export default function Chat({
         design?: unknown
       }
       if (!lsfRes.ok) {
-        throw new Error(body.message || body.error || `LSF ${lsfRes.status}`)
+        // Prefer envelope message; never dump raw error blobs into chat.
+        const msg =
+          (typeof body.message === 'string' && body.message) ||
+          (typeof body.error === 'string' && body.error) ||
+          'Falha ao gerar a maquete LSF.'
+        throw new Error(userSafeErrorMessage(msg, 'Falha ao gerar a maquete LSF.'))
       }
       const design = body.design ?? {
         kind: 'lsf_maquette',
@@ -395,7 +400,7 @@ export default function Chat({
           text: `Maquete LSF pronta (1:${opts.scale}). Esqueleto steel frame — pode fatiar no H2D.`,
           design,
           iterationId: body.iteration_id,
-          strategy: 'generative',
+          strategy: 'lsf_maquette',
           status: 'ready',
         },
       ])
@@ -446,7 +451,7 @@ export default function Chat({
       const form = new FormData()
       form.append('file', file)
       const res = await fetch('/api/upload', { method: 'POST', body: form })
-      if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`)
+      if (!res.ok) throw new Error(await extractApiError(res))
       const { url } = (await res.json()) as { url: string; kind?: string }
       if (isIfc) {
         // IFC → LSF pipeline. If wizard is open, use its scale; else defaults.
@@ -527,7 +532,7 @@ export default function Chat({
       })
       if (!res.ok) throw new Error(await extractApiError(res))
       const body = (await res.json()) as {
-        strategy?: 'generative'
+        strategy?: string
         needs_ifc?: boolean
         intent?: string
         scale?: number
@@ -563,7 +568,7 @@ export default function Chat({
           role: 'assistant',
           text: label,
           iterationId,
-          strategy: 'generative',
+          strategy: body.strategy ?? body.meta?.kind ?? 'generative',
           design: body.design,
           designAdjustments: body.design_adjustments,
           warnings: body.warnings,
@@ -578,7 +583,13 @@ export default function Chat({
         designKind: (body.design as { kind?: string } | undefined)?.kind ?? body.meta?.kind,
       })
     } catch (e) {
-      setMessages((m) => [...m, { role: 'assistant', text: `Erro: ${(e as Error).message}` }])
+      setMessages((m) => [
+        ...m,
+        {
+          role: 'assistant',
+          text: `Erro: ${userSafeErrorMessage((e as Error).message)}`,
+        },
+      ])
     } finally {
       setBusy(false)
     }

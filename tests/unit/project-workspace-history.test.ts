@@ -7,11 +7,26 @@ const row = (over: Record<string, unknown>) =>
 
 describe('mapHistoryToMessages', () => {
   it('renders a failed row as an error bubble, not "Generated"', () => {
-    const msgs = mapHistoryToMessages([row({ status: 'failed', error: 'design parse failed: boom' })])
+    const msgs = mapHistoryToMessages([
+      row({ status: 'failed', error: 'Não foi possível interpretar o pedido.' }),
+    ])
     const assistant = msgs.find((m) => m.role === 'assistant')!
     expect(assistant.status).toBe('failed')
     expect(assistant.text).not.toBe('Generated')
-    expect(assistant.text).toContain('boom')
+    expect(assistant.text).toContain('interpretar')
+  })
+
+  it('sanitizes technical SQL/stack dumps from failed history (BUG-009)', () => {
+    const msgs = mapHistoryToMessages([
+      row({
+        status: 'failed',
+        error: 'insert into "users" violates unique constraint\n    at Object.query (/Users/x/app.ts:1:1)',
+      }),
+    ])
+    const assistant = msgs.find((m) => m.role === 'assistant')!
+    expect(assistant.text).toMatch(/^Falhou:/)
+    expect(assistant.text).not.toMatch(/insert into/i)
+    expect(assistant.text).not.toMatch(/\/Users\//)
   })
   it('renders an in-flight row as generating', () => {
     const msgs = mapHistoryToMessages([row({ status: 'generating', error: null })])

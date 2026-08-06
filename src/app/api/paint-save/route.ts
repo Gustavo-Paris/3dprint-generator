@@ -167,7 +167,12 @@ export async function POST(req: Request) {
       projectId: row.iteration.projectId,
       userMessage: 'Pintura manual aplicada',
       status: 'generating',
-      strategy: 'generative',
+      // Painted mesh is an edit of the source iteration — prefer its real kind;
+      // fall back to imported when missing or legacy 'generative'.
+      strategy:
+        row.iteration.strategy && row.iteration.strategy !== 'generative'
+          ? row.iteration.strategy
+          : 'imported',
     })
     .returning()
 
@@ -177,7 +182,7 @@ export async function POST(req: Request) {
   } catch (err) {
     log.error('paint persist failed', err, { iterationId, newIterationId: iteration.id })
     await db.update(iterations)
-      .set({ status: 'failed', error: `paint persist failed: ${(err as Error).message}` })
+      .set({ status: 'failed', error: 'Não foi possível salvar a malha pintada.' })
       .where(eq(iterations.id, iteration.id))
     return apiError(500, 'persist_failed', 'Não foi possível salvar a malha pintada.', {
       iteration_id: iteration.id,

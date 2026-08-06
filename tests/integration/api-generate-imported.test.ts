@@ -111,7 +111,7 @@ vi.stubGlobal('fetch', vi.fn(async (url: string) => {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 describe('POST /api/generate (imported .3mf flow)', () => {
-  it('returns 200, strategy=generative, design.kind=imported, bbox ~15mm (half of 30mm cube)', async () => {
+  it('returns 200, strategy=imported, design.kind=imported, bbox ~15mm (half of 30mm cube)', async () => {
     // Reset call counter before each test so mocks are deterministic
     selectCallCount = 0
     mockHistory = []
@@ -137,7 +137,7 @@ describe('POST /api/generate (imported .3mf flow)', () => {
 
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.strategy).toBe('generative')
+    expect(body.strategy).toBe('imported')
     expect(body.design.kind).toBe('imported')
     expect(body.meta.bbox_mm.x).toBeCloseTo(15, 0)
     expect(body.iteration_id).toBe(mockIteration.id)

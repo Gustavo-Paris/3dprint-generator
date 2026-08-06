@@ -89,7 +89,8 @@ describe('/api/generate with 3MF output', () => {
     const body = await res.json()
     console.log("3MF generation response:", body)
     
-    expect(body.strategy).toBe('generative')
+    // Real design kind (no longer the dead hardcode 'generative').
+    expect(body.strategy).toBe(body.meta?.kind ?? body.design?.kind)
     expect(body.mesh_url).toContain('.3mf')
     expect(body.mesh_url).not.toContain('.stl')
 
