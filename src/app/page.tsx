@@ -9,6 +9,7 @@ import { createProject } from '@/actions/projects'
 import { paginate } from '@/lib/projects/paginate'
 import { Brand, BrandMark } from '@/components/Brand'
 import ProjectCard, { type IterationStatus } from '@/components/ProjectCard'
+import { STARTER_PRESETS, kindLabelForStrategy } from '@/lib/projects/presets'
 
 /** Human, short PT-BR relative time. Server-rendered once, so no hydration drift. */
 function relativeTimePt(date: Date): string {
@@ -71,6 +72,7 @@ export default async function Home({
             .selectDistinctOn([iterations.projectId], {
               projectId: iterations.projectId,
               status: iterations.status,
+              strategy: iterations.strategy,
             })
             .from(iterations)
             .where(inArray(iterations.projectId, pageIds))
@@ -78,6 +80,9 @@ export default async function Home({
         ])
   const countByProject = new Map(iterCounts.map((r) => [r.projectId, r.n]))
   const statusByProject = new Map(lastIters.map((r) => [r.projectId, r.status]))
+  const kindByProject = new Map(
+    lastIters.map((r) => [r.projectId, kindLabelForStrategy(r.strategy)]),
+  )
 
   return (
     <div className="flex min-h-full flex-col bg-slate-50">
@@ -145,6 +150,38 @@ export default async function Home({
           </div>
         </form>
 
+        <section aria-labelledby="presets-heading" data-testid="starter-presets">
+          <h2 id="presets-heading" className="text-sm font-semibold text-slate-800">
+            Comece por um modelo
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Cria o projeto e já deixa o pedido no chat — você só confirma ou ajusta.
+          </p>
+          <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {STARTER_PRESETS.map((preset) => (
+              <li key={preset.id}>
+                <form action={createProject}>
+                  <input type="hidden" name="title" value={preset.title} />
+                  <input type="hidden" name="seedPrompt" value={preset.prompt} />
+                  <button
+                    type="submit"
+                    className="flex w-full flex-col items-start gap-1 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-card min-h-11"
+                    data-testid={`preset-${preset.id}`}
+                  >
+                    <span className="text-xl" aria-hidden>
+                      {preset.emoji}
+                    </span>
+                    <span className="text-xs font-semibold text-slate-900 leading-snug">
+                      {preset.title}
+                    </span>
+                    <span className="text-[11px] text-slate-500">{preset.blurb}</span>
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        </section>
+
         {myProjects.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 px-6 py-14 text-center">
             <BrandMark className="mx-auto h-10 w-10 opacity-60" />
@@ -164,6 +201,7 @@ export default async function Home({
                   iterCount={countByProject.get(p.id) ?? 0}
                   lastStatus={(statusByProject.get(p.id) ?? null) as IterationStatus | null}
                   gradient={thumbGradient(p.id)}
+                  kindLabel={kindByProject.get(p.id) ?? null}
                 />
               </li>
             ))}

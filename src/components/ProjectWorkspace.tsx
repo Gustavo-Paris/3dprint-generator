@@ -266,11 +266,14 @@ export default function ProjectWorkspace({
   project,
   initialHistory,
   printConfig,
+  seedPrompt,
 }: {
   project: Project
   initialHistory: HistoryRow[]
   /** Non-secret print settings resolved server-side (Settings singleton). */
   printConfig?: { printerModel: string | null; bodyHex: string; accentHex: string }
+  /** Home gallery preset seed (rm-013) — pre-fills chat composer once. */
+  seedPrompt?: string | null
 }) {
   const lastReady = initialHistory.findLast(
     (it) => it.status === 'ready' || it.status === 'sliced',
@@ -859,6 +862,7 @@ export default function ProjectWorkspace({
           projectId={project.id}
           initial={initialMessages}
           initialAttachedImageUrl={lastImageUrl}
+          initialDraft={seedPrompt ?? undefined}
           onResult={onResult}
           onMeshUploaded={onMeshUploaded}
           onAttachedImageChange={setAttachedImageUrl}
@@ -873,6 +877,15 @@ export default function ProjectWorkspace({
         />
       </aside>
       <section className="relative studio-stage flex-1 min-h-0" data-testid="viewer-slot">
+        {printConfig?.printerModel && (
+          <div
+            data-testid="print-profile-badge"
+            className="absolute left-1/2 top-2 z-20 -translate-x-1/2 rounded-full border border-slate-600 bg-slate-900/85 px-3 py-1 text-[11px] text-slate-200 shadow-soft backdrop-blur"
+            title="Perfil de impressão configurado (admin). Usado no 3MF multi-cor e no fatiamento."
+          >
+            Perfil: {printConfig.printerModel}
+          </div>
+        )}
         <MeshViewer
           ref={meshViewerRef}
           positions={positions}

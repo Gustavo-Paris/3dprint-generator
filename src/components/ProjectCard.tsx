@@ -27,6 +27,7 @@ export default function ProjectCard({
   iterCount,
   lastStatus,
   gradient,
+  kindLabel,
 }: {
   id: string
   title: string
@@ -34,6 +35,8 @@ export default function ProjectCard({
   iterCount: number
   lastStatus: IterationStatus | null
   gradient: string
+  /** Short kind/strategy label for the thumb (rm-013). */
+  kindLabel?: string | null
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -107,8 +110,14 @@ export default function ProjectCard({
         <div
           className="relative flex h-28 items-center justify-center overflow-hidden"
           style={{ backgroundImage: gradient }}
+          data-testid="project-card-thumb"
         >
           <BrandMark className="h-9 w-9 opacity-95 drop-shadow-sm transition-transform duration-200 group-hover:scale-110" />
+          {kindLabel && (
+            <span className="absolute bottom-2 left-2 rounded-full bg-black/45 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white backdrop-blur">
+              {kindLabel}
+            </span>
+          )}
         </div>
       </Link>
 

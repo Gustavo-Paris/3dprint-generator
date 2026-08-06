@@ -32,10 +32,13 @@ export async function generateMetadata({
 
 export default async function ProjectPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ seed?: string }>
 }) {
   const { id } = await params
+  const { seed: seedParam } = await searchParams
   const session = await auth()
   if (!session?.user?.id) redirect('/sign-in')
 
@@ -64,11 +67,18 @@ export default async function ProjectPage({
     accentHex: cfg.filamentColorAccent ?? DEFAULT_FILAMENT_COLOR_ACCENT,
   }
 
+  // Home gallery preset seed (rm-013) — cap length; ignore garbage.
+  const seedPrompt =
+    typeof seedParam === 'string' && seedParam.length > 0 && seedParam.length <= 500
+      ? seedParam
+      : null
+
   return (
     <ProjectWorkspace
       project={project}
       initialHistory={history}
       printConfig={printConfig}
+      seedPrompt={seedPrompt}
     />
   )
 }

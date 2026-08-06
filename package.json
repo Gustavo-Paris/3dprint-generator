@@ -13,7 +13,9 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "meshes:sweep": "tsx --env-file=.env.local scripts/sweep-orphan-meshes.ts",
+    "meshes:sweep:apply": "tsx --env-file=.env.local scripts/sweep-orphan-meshes.ts --apply"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.78",

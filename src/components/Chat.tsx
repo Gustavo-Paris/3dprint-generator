@@ -11,6 +11,9 @@ import {
 } from '@/lib/lsf/detect-intent'
 import { lsfProgressLabel } from '@/lib/lsf/progress'
 import { buildLsfFichaMarkdown } from '@/lib/lsf/ficha'
+import { CHAT_VISIBLE_WINDOW } from '@/lib/chat/window'
+
+export { CHAT_VISIBLE_WINDOW }
 
 /** Starter prompts shown in the empty chat so the workspace isn't a blank panel
  *  (design critique P0-2). Clicking one fills the composer (PT-BR, on purpose). */
@@ -202,6 +205,7 @@ export default function Chat({
   projectId,
   initial,
   initialAttachedImageUrl,
+  initialDraft,
   onResult,
   onMeshUploaded,
   onAttachedImageChange,
@@ -217,6 +221,8 @@ export default function Chat({
    * follow-up messages iterate on the same image instead of generating from scratch.
    * The user can click the X to clear it before sending. */
   initialAttachedImageUrl?: string | null
+  /** Prefill composer (home starter preset seed). */
+  initialDraft?: string
   onResult: (r: ChatResult) => void
   /** Called when the user uploads a .3mf file. ProjectWorkspace will load it into
    * the viewer and capture previews before the next send. */
@@ -240,7 +246,8 @@ export default function Chat({
   pendingPreviews?: PreviewBundle | null
 }) {
   const [messages, setMessages] = useState<Msg[]>(initial)
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(initialDraft ?? '')
+  const [showAllMessages, setShowAllMessages] = useState(false)
   const [busy, setBusy] = useState(false)
   /** Honest generate phase label (rm-006) — not fake %; one server round-trip. */
   const [genPhase, setGenPhase] = useState<string | null>(null)
@@ -635,23 +642,40 @@ export default function Chat({
             </div>
             <p className="mt-4 font-medium text-slate-100">Vamos criar sua peça</p>
             <p className="mt-1 max-w-xs text-sm text-slate-400">
-              Descreva o que quer imprimir ou anexe uma imagem. Comece com um exemplo:
+              {draft
+                ? 'Pedido do modelo pronto no campo abaixo — envie ou edite.'
+                : 'Descreva o que quer imprimir ou anexe uma imagem. Comece com um exemplo:'}
             </p>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              {examplePromptsFor(!!hasImportedBase).map((ex) => (
-                <button
-                  key={ex}
-                  type="button"
-                  onClick={() => setDraft(ex)}
-                  className="rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs text-slate-300 transition hover:border-brand-500 hover:bg-slate-800 hover:text-white"
-                >
-                  {ex}
-                </button>
-              ))}
-            </div>
+            {!draft && (
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {examplePromptsFor(!!hasImportedBase).map((ex) => (
+                  <button
+                    key={ex}
+                    type="button"
+                    onClick={() => setDraft(ex)}
+                    className="rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs text-slate-300 transition hover:border-brand-500 hover:bg-slate-800 hover:text-white"
+                  >
+                    {ex}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
-        {messages.map((m, i) => (
+        {messages.length > CHAT_VISIBLE_WINDOW && !showAllMessages && (
+          <button
+            type="button"
+            data-testid="chat-show-older"
+            onClick={() => setShowAllMessages(true)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800/50 py-2 text-xs text-slate-300 hover:bg-slate-800"
+          >
+            Mostrar {messages.length - CHAT_VISIBLE_WINDOW} mensagens anteriores
+          </button>
+        )}
+        {(showAllMessages || messages.length <= CHAT_VISIBLE_WINDOW
+          ? messages
+          : messages.slice(-CHAT_VISIBLE_WINDOW)
+        ).map((m, i) => (
           <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
             {m.imageUrl && (
               <div className={m.role === 'user' ? 'inline-block' : ''}>

@@ -15,11 +15,17 @@ export async function createProject(formData: FormData) {
   const session = await auth()
   if (!session?.user?.id) throw new Error('Unauthenticated')
   const title = String(formData.get('title') ?? '').trim() || 'Projeto sem título'
+  // Optional seed from home gallery presets (rm-013) — pre-fills the chat.
+  const seedRaw = String(formData.get('seedPrompt') ?? '').trim()
+  const seed = seedRaw.length > 0 && seedRaw.length <= 500 ? seedRaw : ''
   const [p] = await db
     .insert(projects)
     .values({ userId: session.user.id, title })
     .returning()
   revalidatePath('/')
+  if (seed) {
+    redirect(`/projects/${p.id}?seed=${encodeURIComponent(seed)}`)
+  }
   redirect(`/projects/${p.id}`)
 }
 
