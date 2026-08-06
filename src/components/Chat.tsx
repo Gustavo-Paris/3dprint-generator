@@ -241,6 +241,8 @@ export default function Chat({
   const [messages, setMessages] = useState<Msg[]>(initial)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  /** Honest generate phase label (rm-006) — not fake %; one server round-trip. */
+  const [genPhase, setGenPhase] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   /** When set, user is editing this message's design JSON in an inline panel. */
@@ -514,6 +516,7 @@ export default function Chat({
       setAttachedImage({ url: attachedImage.url, file: null, carried: true })
     }
     setBusy(true)
+    setGenPhase('1/3 Enviando pedido…')
     try {
       const res = await fetch('/api/generate', {
         method: 'POST',
@@ -530,7 +533,9 @@ export default function Chat({
           designOverride: opts?.designOverride,
         }),
       })
+      setGenPhase('2/3 Processando no servidor…')
       if (!res.ok) throw new Error(await extractApiError(res))
+      setGenPhase('3/3 Carregando malha…')
       const body = (await res.json()) as {
         strategy?: string
         needs_ifc?: boolean
@@ -592,6 +597,7 @@ export default function Chat({
       ])
     } finally {
       setBusy(false)
+      setGenPhase(null)
     }
   }
 
@@ -779,11 +785,16 @@ export default function Chat({
           </div>
         ))}
         {busy && (
-          <div className="flex items-center gap-2 text-slate-400 text-xs">
+          <div
+            className="flex items-center gap-2 text-slate-400 text-xs"
+            data-testid="generate-progress"
+            role="status"
+            aria-live="polite"
+          >
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-brand-400" />
             {lsfDraft?.running
               ? `${lsfDraft.progressLabel} (${lsfDraft.elapsedSec}s)`
-              : 'Gerando…'}
+              : genPhase ?? 'Gerando…'}
           </div>
         )}
       </div>

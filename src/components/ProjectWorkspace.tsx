@@ -9,7 +9,7 @@ import type { HistoryRow } from '@/db/history-columns'
 import Chat, { type ChatResult, type PreviewBundle } from './Chat'
 import type { MeshBody, MeshViewerHandle } from './MeshViewer'
 import SliceButton from './SliceButton'
-import DownloadStlButton from './DownloadStlButton'
+import ExportMenu from './ExportMenu'
 import FlexifyButton from './FlexifyButton'
 import MeshValidityBanner from './MeshValidityBanner'
 import { extractApiError, userSafeErrorMessage } from '@/lib/http/client-error'
@@ -883,8 +883,15 @@ export default function ProjectWorkspace({
         {/* Left column: action toolbar + logo-position fieldset + paint panel,
             stacked in flow so they can never cover each other. */}
         <div className="contents lg:absolute lg:left-4 lg:top-[4.5rem] lg:z-10 lg:flex lg:max-h-[calc(100%-6rem)] lg:max-w-xs lg:flex-col lg:gap-2 lg:overflow-y-auto">
-        <div className="flex flex-wrap gap-2">
-          <DownloadStlButton iterationId={activeIterationId} stl={stl} />
+        <div className="flex flex-wrap gap-2" data-testid="studio-toolbar">
+          <ExportMenu
+            iterationId={activeIterationId}
+            stl={stl}
+            canExportMulticolor={!!paintMeshRef.current || paintDirty || paintSaved}
+            multicolorBusy={placing && paintDirty}
+            paintDirty={paintDirty}
+            onExportMulticolor={() => void exportPainted3mf()}
+          />
           <FlexifyButton
             projectId={project.id}
             iterationId={iterationId}
@@ -893,6 +900,8 @@ export default function ProjectWorkspace({
           />
           {positions && importedBaseAvailable && (
             <button
+              type="button"
+              data-testid="logo-here-btn"
               onClick={() => {
                 setPickMode((v) => {
                   const next = !v
@@ -922,6 +931,8 @@ export default function ProjectWorkspace({
           )}
           {positions && paintableMeshAvailable && (
             <button
+              type="button"
+              data-testid="paint-colors-btn"
               onClick={() => {
                 setPaintMode((v) => !v)
                 setPickMode(false)
@@ -1134,7 +1145,7 @@ export default function ProjectWorkspace({
         <div className="bg-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-3 shadow-card flex flex-col gap-2 text-xs text-slate-300">
           <div className="border-b border-slate-700 pb-1">
             <div className="font-semibold text-white">Cores da peça</div>
-            <div className="text-[10px] text-slate-500">usadas no viewer e no 3MF exportado</div>
+            <div className="text-xs text-slate-500">viewer e 3MF multi-cor exportado</div>
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -1142,10 +1153,12 @@ export default function ProjectWorkspace({
               id="body-color-picker"
               value={bodyColor}
               onChange={(e) => setBodyColor(e.target.value)}
-              aria-label="Cor da base (extrusora A)"
+              aria-label="Cor 1 (corpo)"
               className="w-11 h-11 rounded border border-slate-600 cursor-pointer p-0"
             />
-            <label htmlFor="body-color-picker" className="cursor-pointer font-medium">Cor da Base (A)</label>
+            <label htmlFor="body-color-picker" className="cursor-pointer font-medium">
+              Cor 1 (corpo)
+            </label>
           </div>
           <div className="flex items-center gap-2">
             <input
@@ -1153,14 +1166,14 @@ export default function ProjectWorkspace({
               id="logo-color-picker"
               value={logoColor}
               onChange={(e) => setLogoColor(e.target.value)}
-              aria-label="Cor do logo (extrusora B)"
+              aria-label="Cor 2 (detalhe)"
               className="w-11 h-11 rounded border border-slate-600 cursor-pointer p-0"
             />
             <label htmlFor="logo-color-picker" className="cursor-pointer font-medium">
-              Cor 2 / Logo (B)
+              Cor 2 (detalhe)
             </label>
           </div>
-          <p className="hidden lg:block text-[10px] text-slate-500 leading-snug max-w-[12rem]">
+          <p className="hidden lg:block text-xs text-slate-500 leading-snug max-w-[12rem]">
             Melhor: anexe o render de cores + &quot;pintar com a imagem&quot;. Ou use 🎨 Pintar cores no modelo.
           </p>
         </div>
