@@ -6,6 +6,7 @@ describe('examplePromptsFor', () => {
     const chips = examplePromptsFor(false)
     expect(chips.length).toBeGreaterThan(0)
     expect(chips.join(' ')).toContain('Porta-lata')
+    expect(chips.join(' ')).toMatch(/LSF|IFC/)
   })
 
   it('switches to edit examples when the project has an imported base', () => {
@@ -44,6 +45,19 @@ describe('designDetails (human summary — no raw JSON in the disclosure)', () =
     })
     expect(lines[0]).toContain('importada')
     expect(lines[1]).toBe('Edições aplicadas: 2')
+  })
+
+  it('summarizes LSF maquete scale and min thickness', () => {
+    const lines = designDetails({
+      kind: 'lsf_maquette',
+      ifcUrl: '/uploads/x.ifc',
+      scale: 70,
+      minTMm: 1.9,
+      fitBed: true,
+    })
+    expect(lines[0]).toContain('LSF')
+    expect(lines.join(' ')).toContain('1:70')
+    expect(lines.join(' ')).toContain('1.9')
   })
 
   it('returns [] for non-object designs', () => {

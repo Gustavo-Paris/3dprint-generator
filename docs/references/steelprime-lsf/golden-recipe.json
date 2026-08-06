@@ -1,0 +1,61 @@
+{
+  "name": "SteelPrime LSF maquete — GOLDEN FINAL (operator cuts for production)",
+  "status": "CANONICAL — use for all future LSF house maquetes of this pattern",
+  "source_3mf": "Downloads/SteelPrime_LSF_PRINTABLE.3mf (operator-approved 2026-08-05)",
+  "repo_path": "docs/references/steelprime-lsf/SteelPrime_LSF_GOLDEN_FINAL.3mf",
+  "desktop_path": "Desktop/SteelPrime-Print/SteelPrime_LSF_GOLDEN_FINAL.3mf",
+  "frozen_at": "2026-08-05",
+  "geometry": {
+    "mode": "lsf_skeleton_solid_members",
+    "description": "Each LSF member as solid oriented box ~1.9mm min section; single flat base; operator production cuts",
+    "extents_mm": [
+      127.27366,
+      204.6178,
+      103.37351
+    ],
+    "faces": 79980,
+    "bodies": 6665,
+    "components_split": 6665,
+    "watertight": true,
+    "min_member_thickness_mm_p10": 1.8999999999999986,
+    "min_member_thickness_mm_p50": 1.9000000000000057,
+    "min_member_thickness_mm_min": 1.899989999999999,
+    "base": "single flat plate ~2.5mm",
+    "plate_scale_from_1_70": 0.757309103
+  },
+  "process": {
+    "printer": "Bambu Lab H2D 0.4",
+    "filament": "PLA",
+    "layer_height": "0.24",
+    "wall_loops": "3",
+    "infill": "15%",
+    "brim_width": "8",
+    "support": "tree(auto)",
+    "support_on_build_plate_only": "0",
+    "detect_thin_wall": "1",
+    "line_width": "0.42",
+    "resolution": "0.02",
+    "print_settings_id": "0.24mm Standard @BBL H2D - LSF PRINTABLE"
+  },
+  "pipeline_for_future_houses": [
+    "1. IFC → tessellate LSF members (Beam/Column/Member/Plate)",
+    "2. Scale to maquete (1:70 then fit bed ~0.76 or fit H2D)",
+    "3. Per-member solid OBB with min cross-section ~1.9 mm (NOT global voxel solid)",
+    "4. Drop low foundation mega-slabs; single flat base 2.5 mm",
+    "5. Optional operator cuts in Bambu for production optimization",
+    "6. Apply H2D LSF print profile (tree support, walls 3, brim 8)",
+    "7. Freeze resulting 3mf as project golden if approved"
+  ],
+  "forbidden": [
+    "Global voxel fill / marching cubes of whole house (Minecraft mass)",
+    "Thousands of vertical posts under every member",
+    "Multi-step foundation plates",
+    "Min thickness below ~1.5–1.8 mm on 0.4 nozzle"
+  ],
+  "lessons": [
+    "Visual LSF fidelity requires multi-body members, not one solid",
+    "Printability requires min section ~1.9 mm on 0.4 nozzle with walls 3",
+    "Tree support ON, on build plate only OFF",
+    "Operator production cuts in Bambu are valid finalization step"
+  ]
+}

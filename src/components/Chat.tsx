@@ -3,6 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 import { resultLabel } from '@/lib/chat/result-label'
 import { extractApiError } from '@/lib/http/client-error'
 import { BrandMark } from '@/components/Brand'
+import {
+  detectLsfIntent,
+  DEFAULT_LSF_SCALE,
+  DEFAULT_LSF_MIN_T_MM,
+  LSF_SCALE_PRESETS,
+} from '@/lib/lsf/detect-intent'
+import { lsfProgressLabel } from '@/lib/lsf/progress'
 
 /** Starter prompts shown in the empty chat so the workspace isn't a blank panel
  *  (design critique P0-2). Clicking one fills the composer (PT-BR, on purpose). */
@@ -11,6 +18,7 @@ const EXAMPLE_PROMPTS = [
   'Plaquinha de mesa 80×40mm com furo',
   'Disco ⌀50mm com logo gravado',
   'Chaveiro retangular 40×20mm',
+  'Maquete LSF a partir de IFC',
 ] as const
 
 /** When the project already has an imported base mesh, from-scratch prompts are
@@ -69,6 +77,10 @@ function designSummary(design: unknown): string {
     } else if (edits.length > 0) {
       parts.push(`${edits.length} edit(s)`)
     }
+  } else if (kind === 'lsf_maquette') {
+    const scale = d.scale != null ? `1:${d.scale}` : '1:70'
+    parts.push(`maquete LSF ${scale}`)
+    if (d.minTMm != null) parts.push(`min ${d.minTMm}mm`)
   } else {
     parts.push(kind)
   }
@@ -96,6 +108,7 @@ export function designDetails(design: unknown): string[] {
     parametric_code: 'Peça sob medida (código paramétrico gerado por IA)',
     freeform: 'Forma livre (gerada por IA)',
     flexified: 'Brinquedo articulado',
+    lsf_maquette: 'Maquete LSF (esqueleto steel frame a partir de IFC)',
   }
   const lines: string[] = [`Tipo: ${KIND_LABELS[kind] ?? (kind || 'desconhecido')}`]
   if (kind === 'hollow_cylinder') {
@@ -111,6 +124,10 @@ export function designDetails(design: unknown): string[] {
     if (edits > 0) lines.push(`Edições aplicadas: ${edits}`)
   } else if (kind === 'parametric_code') {
     lines.push(`Especificação: ${String(d.spec ?? '')}`)
+  } else if (kind === 'lsf_maquette') {
+    lines.push(`Escala: 1:${d.scale ?? 70}`)
+    lines.push(`Espessura mínima dos membros: ${d.minTMm ?? 1.9}mm`)
+    if (d.fitBed !== false) lines.push('Ajuste ao leito H2D: sim')
   }
   const logo = d.logo as Record<string, unknown> | undefined
   if (logo) {
@@ -126,11 +143,12 @@ export function designDetails(design: unknown): string[] {
   return lines
 }
 
-/** Badge from design kind — freeform (Meshy), imported mesh, or parametric JSCAD. */
-export function badgeFor(design: unknown): 'meshy' | 'imported' | 'jscad' {
+/** Badge from design kind — freeform (Meshy), imported mesh, LSF, or parametric JSCAD. */
+export function badgeFor(design: unknown): 'meshy' | 'imported' | 'lsf' | 'jscad' {
   const kind = (design as { kind?: string } | undefined)?.kind
   if (kind === 'freeform') return 'meshy'
   if (kind === 'imported') return 'imported'
+  if (kind === 'lsf_maquette') return 'lsf'
   return 'jscad'
 }
 
@@ -173,6 +191,8 @@ export type ChatResult =
       meshBase64: string | null
       /** Seed colour pickers after paint_from_image. */
       paintPalette?: { A: string; B: string }
+      /** When set, ProjectWorkspace adapts validity UI (e.g. LSF multi-body). */
+      designKind?: string
     }
 
 export type PreviewBundle = { top: string; front: string; right: string; iso: string }
@@ -237,7 +257,177 @@ export default function Chat({
   /** "Nova peça do zero" — when on, the next message ignores the imported base
    *  (server skips the history mesh fallback; nothing pending is forwarded). */
   const [startFresh, setStartFresh] = useState(false)
+  /** LSF wizard: text intent or IFC path awaiting scale / run. */
+  const [lsfDraft, setLsfDraft] = useState<{
+    scale: number
+    fitBed: boolean
+    minTMm: number
+    ifcUrl: string | null
+    ifcName: string | null
+    running: boolean
+    progressLabel: string
+    elapsedSec: number
+  } | null>(null)
+  const lsfTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function stopLsfProgress() {
+    if (lsfTimerRef.current) {
+      clearInterval(lsfTimerRef.current)
+      lsfTimerRef.current = null
+    }
+  }
+
+  function startLsfProgress() {
+    stopLsfProgress()
+    const t0 = Date.now()
+    setLsfDraft((d) =>
+      d
+        ? { ...d, running: true, elapsedSec: 0, progressLabel: lsfProgressLabel(0) }
+        : {
+            scale: DEFAULT_LSF_SCALE,
+            fitBed: true,
+            minTMm: DEFAULT_LSF_MIN_T_MM,
+            ifcUrl: null,
+            ifcName: null,
+            running: true,
+            elapsedSec: 0,
+            progressLabel: lsfProgressLabel(0),
+          },
+    )
+    lsfTimerRef.current = setInterval(() => {
+      const sec = Math.floor((Date.now() - t0) / 1000)
+      setLsfDraft((d) =>
+        d
+          ? { ...d, running: true, elapsedSec: sec, progressLabel: lsfProgressLabel(sec) }
+          : d,
+      )
+    }, 500)
+  }
+
+  useEffect(() => () => stopLsfProgress(), [])
+
+  function openLsfWizard(opts?: { scale?: number; fitBed?: boolean; message?: string }) {
+    const scale = opts?.scale ?? DEFAULT_LSF_SCALE
+    const fitBed = opts?.fitBed ?? true
+    setLsfDraft({
+      scale,
+      fitBed,
+      minTMm: DEFAULT_LSF_MIN_T_MM,
+      ifcUrl: null,
+      ifcName: null,
+      running: false,
+      progressLabel: '',
+      elapsedSec: 0,
+    })
+    if (opts?.message) {
+      setMessages((m) => [
+        ...m,
+        { role: 'user', text: opts.message! },
+        {
+          role: 'assistant',
+          text:
+            'Maquete LSF: escolha a escala e anexe o arquivo IFC. O worker gera o esqueleto steel frame com o perfil H2D golden.',
+        },
+      ])
+    } else {
+      setMessages((m) => [
+        ...m,
+        {
+          role: 'assistant',
+          text:
+            'Maquete LSF: escolha a escala e anexe o arquivo IFC. O worker gera o esqueleto steel frame com o perfil H2D golden.',
+        },
+      ])
+    }
+  }
+
+  async function runLsfMaquette(opts: {
+    ifcUrl: string
+    ifcName?: string
+    scale: number
+    fitBed: boolean
+    minTMm: number
+  }) {
+    startLsfProgress()
+    setBusy(true)
+    setUploadError(null)
+    setMessages((m) => [
+      ...m,
+      {
+        role: 'assistant',
+        text: `Gerando maquete LSF 1:${opts.scale}${opts.fitBed ? ' (fit leito H2D)' : ''}…`,
+      },
+    ])
+    try {
+      const lsfRes = await fetch('/api/lsf-maquete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          ifcUrl: opts.ifcUrl,
+          scale: opts.scale,
+          minTMm: opts.minTMm,
+          fitBed: opts.fitBed,
+        }),
+      })
+      const body = (await lsfRes.json().catch(() => ({}))) as {
+        mesh_url?: string
+        iteration_id?: string
+        error?: string
+        message?: string
+        design?: unknown
+      }
+      if (!lsfRes.ok) {
+        throw new Error(body.message || body.error || `LSF ${lsfRes.status}`)
+      }
+      const design = body.design ?? {
+        kind: 'lsf_maquette',
+        ifcUrl: opts.ifcUrl,
+        scale: opts.scale,
+        minTMm: opts.minTMm,
+        fitBed: opts.fitBed,
+      }
+      setMessages((m) => [
+        ...m.slice(0, -1),
+        {
+          role: 'assistant',
+          text: `Maquete LSF pronta (1:${opts.scale}). Esqueleto steel frame — pode fatiar no H2D.`,
+          design,
+          iterationId: body.iteration_id,
+          strategy: 'generative',
+          status: 'ready',
+        },
+      ])
+      if (body.mesh_url) {
+        onMeshUploaded?.(body.mesh_url)
+        onResult({
+          kind: 'generative',
+          iterationId: body.iteration_id ?? '',
+          meshUrl: body.mesh_url,
+          meshBase64: null,
+          designKind: 'lsf_maquette',
+        })
+      }
+      setLsfDraft(null)
+    } catch (err) {
+      console.error('[Chat] LSF maquete failed', err)
+      setMessages((m) => [
+        ...m.slice(0, -1),
+        {
+          role: 'assistant',
+          text: `Falha na maquete LSF: ${(err as Error).message}`,
+        },
+      ])
+      setUploadError('Falha ao gerar maquete LSF a partir do IFC.')
+      setLsfDraft((d) =>
+        d ? { ...d, running: false, progressLabel: 'Falhou — ajuste e tente de novo' } : d,
+      )
+    } finally {
+      stopLsfProgress()
+      setBusy(false)
+    }
+  }
 
   useEffect(() => {
     onAttachedImageChange?.(attachedImage?.url ?? null)
@@ -247,7 +437,9 @@ export default function Chat({
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = '' // reset so same file can be re-selected
-    const isMesh = file.name.toLowerCase().endsWith('.3mf')
+    const lower = file.name.toLowerCase()
+    const isMesh = lower.endsWith('.3mf')
+    const isIfc = lower.endsWith('.ifc')
     setUploading(true)
     setUploadError(null)
     try {
@@ -255,8 +447,25 @@ export default function Chat({
       form.append('file', file)
       const res = await fetch('/api/upload', { method: 'POST', body: form })
       if (!res.ok) throw new Error(`Upload ${res.status}: ${await res.text()}`)
-      const { url } = (await res.json()) as { url: string }
-      if (isMesh) {
+      const { url } = (await res.json()) as { url: string; kind?: string }
+      if (isIfc) {
+        // IFC → LSF pipeline. If wizard is open, use its scale; else defaults.
+        setMessages((m) => [...m, { role: 'user', text: `IFC: ${file.name}` }])
+        const scale = lsfDraft?.scale ?? DEFAULT_LSF_SCALE
+        const fitBed = lsfDraft?.fitBed ?? true
+        const minTMm = lsfDraft?.minTMm ?? DEFAULT_LSF_MIN_T_MM
+        setLsfDraft((d) => ({
+          scale,
+          fitBed,
+          minTMm,
+          ifcUrl: url,
+          ifcName: file.name,
+          running: false,
+          progressLabel: d?.progressLabel ?? '',
+          elapsedSec: d?.elapsedSec ?? 0,
+        }))
+        await runLsfMaquette({ ifcUrl: url, ifcName: file.name, scale, fitBed, minTMm })
+      } else if (isMesh) {
         // Notify ProjectWorkspace so it can load the mesh in the viewer and
         // capture previews. Do NOT set attachedImage — the mesh is not an image.
         onMeshUploaded?.(url)
@@ -274,6 +483,21 @@ export default function Chat({
   async function send(opts?: { designOverride?: unknown; messageOverride?: string }) {
     if (!opts?.designOverride && (!draft.trim() && !attachedImage) || busy) return
     const userText = opts?.messageOverride ?? (draft.trim() || (attachedImage ? '(apenas imagem)' : ''))
+
+    // Text intent → LSF wizard (no IFC yet). Client-side so we skip the LLM.
+    if (!opts?.designOverride && !attachedImage) {
+      const intent = detectLsfIntent(userText)
+      if (intent.matched) {
+        if (!opts?.messageOverride) setDraft('')
+        openLsfWizard({
+          scale: intent.scale,
+          fitBed: intent.fitBed,
+          message: userText,
+        })
+        return
+      }
+    }
+
     // Always forward the attached image URL (including carried-from-history) so
     // paint_from_image can load the reference bytes on multi-colour turns.
     const imgUrl = attachedImage?.url
@@ -303,10 +527,15 @@ export default function Chat({
       })
       if (!res.ok) throw new Error(await extractApiError(res))
       const body = (await res.json()) as {
-        strategy: 'generative'
-        iteration_id: string
-        mesh_url: string | null
-        mesh_base64: string | null
+        strategy?: 'generative'
+        needs_ifc?: boolean
+        intent?: string
+        scale?: number
+        fit_bed?: boolean
+        message?: string
+        iteration_id?: string
+        mesh_url?: string | null
+        mesh_base64?: string | null
         design?: unknown
         design_adjustments?: Array<{ field: string; from: number; to: number }>
         warnings?: Array<{ opIndex: number; op: string; reason: string }>
@@ -316,13 +545,24 @@ export default function Chat({
           paint_palette?: { A: string; B: string }
         }
       }
+      if (body.needs_ifc) {
+        // Server safety net if client intent detector was skipped.
+        setMessages((m) => m.slice(0, -1)) // drop the user bubble we just added — wizard re-adds
+        openLsfWizard({
+          scale: body.scale,
+          fitBed: body.fit_bed,
+          message: userText,
+        })
+        return
+      }
       const label = resultLabel(body.meta as Parameters<typeof resultLabel>[0])
+      const iterationId = body.iteration_id ?? ''
       setMessages((m) => [
         ...m,
         {
           role: 'assistant',
           text: label,
-          iterationId: body.iteration_id,
+          iterationId,
           strategy: 'generative',
           design: body.design,
           designAdjustments: body.design_adjustments,
@@ -331,10 +571,11 @@ export default function Chat({
       ])
       onResult({
         kind: 'generative',
-        iterationId: body.iteration_id,
-        meshUrl: body.mesh_url,
-        meshBase64: body.mesh_base64,
+        iterationId,
+        meshUrl: body.mesh_url ?? null,
+        meshBase64: body.mesh_base64 ?? null,
         paintPalette: body.meta?.paint_palette,
+        designKind: (body.design as { kind?: string } | undefined)?.kind ?? body.meta?.kind,
       })
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', text: `Erro: ${(e as Error).message}` }])
@@ -396,7 +637,9 @@ export default function Chat({
                   ? 'imagem'
                   : badgeFor(m.design) === 'imported'
                     ? 'importado'
-                    : 'paramétrico'}
+                    : badgeFor(m.design) === 'lsf'
+                      ? 'lsf'
+                      : 'paramétrico'}
               </span>
             )}
             {onViewIteration && isViewableVersion(m) && (
@@ -527,10 +770,93 @@ export default function Chat({
         {busy && (
           <div className="flex items-center gap-2 text-slate-400 text-xs">
             <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-600 border-t-brand-400" />
-            Gerando…
+            {lsfDraft?.running
+              ? `${lsfDraft.progressLabel} (${lsfDraft.elapsedSec}s)`
+              : 'Gerando…'}
           </div>
         )}
       </div>
+
+      {lsfDraft && !lsfDraft.running && (
+        <div className="px-4 py-3 border-t border-slate-800 bg-sky-950/40 space-y-2" data-testid="lsf-wizard">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-sky-300">
+              Maquete LSF
+            </span>
+            <button
+              type="button"
+              onClick={() => setLsfDraft(null)}
+              className="text-[10px] text-sky-400 hover:text-red-300 min-h-11 px-2"
+              aria-label="Cancelar maquete LSF"
+            >
+              Cancelar
+            </button>
+          </div>
+          <p className="text-[11px] text-sky-100/90">
+            Escala arquitetônica e ajuste ao leito H2D. Depois anexe o IFC.
+          </p>
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-[10px] uppercase text-sky-400">Escala</span>
+            {LSF_SCALE_PRESETS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setLsfDraft((d) => (d ? { ...d, scale: s } : d))}
+                className={`rounded-full px-3 py-1 text-xs min-h-11 border transition ${
+                  lsfDraft.scale === s
+                    ? 'border-sky-400 bg-sky-900 text-white'
+                    : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-sky-600'
+                }`}
+              >
+                1:{s}
+              </button>
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-[11px] text-sky-100 cursor-pointer select-none min-h-11">
+            <input
+              type="checkbox"
+              checked={lsfDraft.fitBed}
+              onChange={(e) =>
+                setLsfDraft((d) => (d ? { ...d, fitBed: e.target.checked } : d))
+              }
+              className="accent-sky-500"
+            />
+            Ajustar ao leito H2D (fit bed)
+          </label>
+          {lsfDraft.ifcUrl ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-sky-200 truncate flex-1">
+                IFC: {lsfDraft.ifcName ?? 'arquivo'}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void runLsfMaquette({
+                    ifcUrl: lsfDraft.ifcUrl!,
+                    ifcName: lsfDraft.ifcName ?? undefined,
+                    scale: lsfDraft.scale,
+                    fitBed: lsfDraft.fitBed,
+                    minTMm: lsfDraft.minTMm,
+                  })
+                }
+                className="rounded-lg bg-sky-600 text-white text-xs px-3 py-2 min-h-11 hover:bg-sky-500 disabled:opacity-50"
+              >
+                Gerar maquete
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={busy || uploading}
+              className="w-full rounded-lg border border-sky-700 bg-sky-900/50 text-sky-100 text-xs px-3 py-2 min-h-11 hover:bg-sky-900 disabled:opacity-50"
+            >
+              Anexar arquivo IFC…
+            </button>
+          )}
+        </div>
+      )}
 
       {pendingMeshUrl && (
         <div className="px-4 pb-2 pt-2 flex items-center gap-2 border-t border-slate-800 bg-violet-950/40">
@@ -616,7 +942,7 @@ export default function Chat({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".3mf,image/png,image/jpeg,image/webp"
+          accept=".3mf,.ifc,image/png,image/jpeg,image/webp"
           className="hidden"
           onChange={onFileChange}
           data-testid="chat-file-input"

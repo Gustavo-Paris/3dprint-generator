@@ -75,6 +75,9 @@ public/test-*.stl
 # ad-hoc debug scripts (kept locally, not tracked)
 /scripts/debug/
 
+# LSF golden: keep 3mf + recipe in git; large extracted STLs stay local
+/docs/references/steelprime-lsf/*.stl
+
 # external tool state
 .antigravitycli/
 .pgdk/

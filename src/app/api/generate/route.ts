@@ -33,6 +33,7 @@ import { sanitizeDesign } from '@/lib/design/sanitize'
 import { tryQuickModify } from '@/lib/design/quick-modifier'
 import type { Design } from '@/lib/design/schema'
 import { Body } from './body-schema'
+import { detectLsfIntent, DEFAULT_LSF_SCALE } from '@/lib/lsf/detect-intent'
 import type { PreviewBundle } from '@/lib/design/parse-import'
 import {
   STUB_PREVIEW,
@@ -78,6 +79,23 @@ export async function POST(req: Request) {
     .where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id)))
     .limit(1)
   if (!project) return apiError(404, 'not_found', 'Projeto não encontrado.')
+
+  // LSF maquete is a dedicated pipeline (POST /api/lsf-maquete + IFC). When the
+  // user asks in chat without an IFC, do not invent a parametric Design — tell
+  // the client to open the LSF wizard (scale picker + file attach).
+  if (!designOverride && !paintPlacement && !logoPlacement && !freshMeshUrl) {
+    const lsf = detectLsfIntent(message)
+    if (lsf.matched) {
+      return Response.json({
+        needs_ifc: true,
+        intent: 'lsf_maquette',
+        scale: lsf.scale ?? DEFAULT_LSF_SCALE,
+        fit_bed: lsf.fitBed ?? true,
+        message:
+          'Anexe um arquivo IFC para gerar a maquete LSF (esqueleto steel frame).',
+      })
+    }
+  }
 
   // SSRF gate for a client-supplied external image URL (resolves DNS + blocks
   // private/loopback/link-local/metadata). Up front so we reject before any DB write.

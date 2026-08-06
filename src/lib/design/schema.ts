@@ -410,6 +410,23 @@ const Freeform = z.object({
   artStyle: z.enum(['realistic', 'sculpture']).default('realistic'),
 })
 
+/**
+ * Light Steel Frame maquete from IFC — golden recipe
+ * (docs/references/steelprime-lsf/SteelPrime_LSF_GOLDEN_FINAL.3mf).
+ * Built by the Python worker (cad-workshop/parts/lsf-maquete), not JSCAD.
+ */
+const LsfMaquette = z.object({
+  kind: z.literal('lsf_maquette'),
+  /** Absolute URL or /uploads/… path to the source IFC. */
+  ifcUrl: z.string().min(1),
+  /** Architectural scale 1:N (default 70). */
+  scale: z.number().positive().max(500).default(70),
+  /** Min member cross-section mm after plate scale (default 1.9). */
+  minTMm: z.number().positive().max(10).default(1.9),
+  /** Fit assembly into H2D bed (default true). */
+  fitBed: z.boolean().default(true),
+})
+
 export const Design = z.discriminatedUnion('kind', [
   HollowCylinder,
   FlatPlate,
@@ -423,6 +440,7 @@ export const Design = z.discriminatedUnion('kind', [
   Imported,
   ParametricCode,
   Freeform,
+  LsfMaquette,
 ])
 export type Design = z.infer<typeof Design>
 /** Input shape — defaults (extruder, addBridges, texture, …) are optional here.

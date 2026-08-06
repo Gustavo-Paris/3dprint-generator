@@ -3,6 +3,10 @@
 
 ## Notes
 
+- **2026-08-05** — SteelPrime LSF golden + SaaS Phase C/D: strategy `lsf_maquette`, IFC upload, `POST /api/lsf-maquete`, Chat text intent + scale picker + progress UI, multi-body validity gate, slice soup path for LSF. Env `LSF_PYTHON`/`LSF_WORKER`.
+
+
+
 - **2026-05-18** — Sessão 2026-05-17 fechou com 3 composers determinísticos funcionando (chaveiro/porta-copo/medalha) + universal Meshy+logo composer + size parser. Medalha imprimiu 6 unidades na Bambu. Próximos passos no sprint: CHORE-001 (commit), depois FEAT-001/002/003 (pingente, ímã, plaquinha), depois CHORE-002 (cleanup órfão). Postgres voltou após restart do Docker. Dev server pid 82984.
 - **2026-05-18** — Refactor done: detect-X/composer-X ladder → 1 LLM parser + 1 parametric generator + Meshy freeform fallback. Added: download STL button, design JSON inline editing (bypass LLM), sanity clamps with adjustments surfaced in chat. 49 unit tests passing. Files: src/lib/design/{schema,parse,generate,sanitize}.ts. 21 legacy files deleted.
 - **2026-05-19** — Meshy removed entirely. Schema: 3 primitives only (hollow_cylinder/flat_plate/disc), no freeform. LLM biased toward closest-primitive fallback for exotic shapes (trophy → tall flat_plate, etc.). Deleted: src/lib/meshy/, with-meshy-base.ts, meshy tests, MESHY_API_KEY from env. 46 tests passing.

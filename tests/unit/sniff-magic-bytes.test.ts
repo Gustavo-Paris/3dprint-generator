@@ -15,6 +15,10 @@ describe('sniffKind', () => {
   it('detects zip/3mf as mesh', () => {
     expect(sniffKind(zip)).toBe('mesh')
   })
+  it('detects IFC STEP header as ifc', () => {
+    const ifc = Buffer.from('ISO-10303-21;\nHEADER;')
+    expect(sniffKind(ifc)).toBe('ifc')
+  })
   it('returns null for unknown bytes', () => {
     expect(sniffKind(Buffer.from('not a real file'))).toBeNull()
   })

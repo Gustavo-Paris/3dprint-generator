@@ -71,6 +71,13 @@
       "when": 1785939493613,
       "tag": "0009_puzzling_wrecking_crew",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785981834921,
+      "tag": "0010_lsf_maquette_strategy",
+      "breakpoints": true
     }
   ]
 }

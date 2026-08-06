@@ -8,6 +8,8 @@ export const iterationStrategies = [
   'hollow_cylinder', 'flat_plate', 'disc', 'bookmark', 'pin',
   'custom_keychain', 'mug', 'imported', 'composite', 'freeform', 'flexified',
   'parametric_code', 'box',
+  /** IFC → LSF print maquete (SteelPrime golden recipe). */
+  'lsf_maquette',
 ] as const
 export type IterationStrategy = (typeof iterationStrategies)[number]
 

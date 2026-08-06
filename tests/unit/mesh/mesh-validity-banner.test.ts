@@ -39,4 +39,33 @@ describe('meshValidityBanner', () => {
       expect(b.title).toMatch(/coordenadas inválidas/)
     }
   })
+
+  it('LSF multi-body: expected non-watertight is info, not hole alarm', () => {
+    const b = meshValidityBanner(
+      report({ watertight: false, boundaryEdges: 50_000, nonManifoldEdges: 200 }),
+      { expectMultiBody: true },
+    )
+    expect(b).toEqual({
+      show: true,
+      tone: 'info',
+      title: 'Maquete LSF multi-corpo',
+      detail:
+        'aberturas entre membros são esperadas; perfil H2D usa tree support + brim.',
+    })
+  })
+
+  it('LSF multi-body still warns on non-finite coordinates', () => {
+    const b = meshValidityBanner(
+      report({ watertight: false, nonFiniteTriangles: 2, boundaryEdges: 100 }),
+      { expectMultiBody: true },
+    )
+    expect(b.show).toBe(true)
+    if (b.show) expect(b.tone).toBe('warn')
+  })
+
+  it('LSF multi-body shows calm note even when analysis was skipped', () => {
+    const b = meshValidityBanner(report({ analyzed: false }), { expectMultiBody: true })
+    expect(b.show).toBe(true)
+    if (b.show) expect(b.title).toMatch(/LSF/)
+  })
 })

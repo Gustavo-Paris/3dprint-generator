@@ -192,6 +192,7 @@ export function mapHistoryToMessages(history: HistoryRow[]): ChatMsg[] {
       const text =
         kind === 'imported' ? 'Malha importada atualizada'
         : kind === 'freeform' ? 'Modelo freeform gerado'
+        : kind === 'lsf_maquette' ? 'Maquete LSF pronta'
         : 'Pronto'
       return [userMsg, {
         role: 'assistant' as const,
@@ -245,6 +246,12 @@ export default function ProjectWorkspace({
   const [error, setError] = useState<string | null>(null)
   // Advisory mesh-validity report for whatever mesh is currently in the viewer.
   const [validity, setValidity] = useState<MeshValidityReport | null>(null)
+  /** LSF maquete: multi-body non-watertight is expected — calm validity banner. */
+  const [expectMultiBody, setExpectMultiBody] = useState(
+    () =>
+      (lastReady?.validationReport as { kind?: string } | null)?.kind === 'lsf_maquette' ||
+      lastReady?.strategy === 'lsf_maquette',
+  )
 
   // 3MF import flow: track the pending mesh URL + captured previews.
   const meshViewerRef = useRef<MeshViewerHandle>(null)
@@ -289,12 +296,16 @@ export default function ProjectWorkspace({
    * hydrate below and by "Ver esta versão" (chat version navigation).
    */
   async function loadIterationRow(
-    row: Pick<HistoryRow, 'strategy' | 'jscadCode' | 'meshBlobUrl'>,
+    row: Pick<HistoryRow, 'strategy' | 'jscadCode' | 'meshBlobUrl' | 'validationReport'>,
     isCancelled: () => boolean = () => false,
   ): Promise<void> {
     try {
       setError(null)
       setValidity(null)
+      const designKind = (row.validationReport as { kind?: string } | null)?.kind
+      setExpectMultiBody(
+        designKind === 'lsf_maquette' || row.strategy === 'lsf_maquette',
+      )
       if (row.strategy === 'parametric' && row.jscadCode) {
         const r = await runInWorker({ type: 'jscad', code: row.jscadCode })
         if (isCancelled()) return
@@ -387,6 +398,11 @@ export default function ProjectWorkspace({
     setIterationId(r.iterationId)
     setError(null)
     setValidity(null)
+    if (r.kind === 'generative') {
+      setExpectMultiBody(r.designKind === 'lsf_maquette')
+    } else {
+      setExpectMultiBody(false)
+    }
     // A fresh generation always shows the newest result — drop any "viewing an
     // old version" state (the snapshot is stale once a new iteration lands).
     setViewingVersionId(null)
@@ -1157,7 +1173,7 @@ export default function ProjectWorkspace({
         </div>
         )}
 
-        {!error && <MeshValidityBanner report={validity} />}
+        {!error && <MeshValidityBanner report={validity} expectMultiBody={expectMultiBody} />}
         {/* Error alert. Mobile (<lg): top-anchored + z-20 so the bottom sheet
             (bottom-0 z-10, dynamic height) can never cover it. Desktop:
             bottom-4 as before (columns are top-anchored there). */}

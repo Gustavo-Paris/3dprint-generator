@@ -69,14 +69,23 @@ export async function POST(req: Request) {
   // is single-material anyway (multi-colour is the separate Download-3MF path).
   // IMPORTANT: union A∪B via Manifold — naive triangle concat leaves the logo
   // as a floating shell → "floating cantilever" + white spike markers in Bambu.
+  //
+  // Exception: LSF maquete is an intentional multi-body non-watertight skeleton
+  // (thousands of independent members). Never Manifold-union it — just dump
+  // the triangle soup so tree supports can land on each member.
   if (meshBytes[0] === 0x50 && meshBytes[1] === 0x4b) {
     try {
       const { loadBaseMeshFromBytes } = await import('@/lib/import/load-base-mesh')
       const { serializeBinarySTL } = await import('@/lib/stl/serialize')
-      const { flattenMeshForSlice } = await import('@/lib/slice/flatten-for-slice')
+      const { allowsNonWatertightSlice } = await import('@/lib/slice/preconditions')
       const mesh = await loadBaseMeshFromBytes(new Uint8Array(meshBytes))
-      const solid = await flattenMeshForSlice(mesh)
-      meshBytes = Buffer.from(serializeBinarySTL(Array.from(solid)))
+      if (allowsNonWatertightSlice(row.iteration.strategy)) {
+        meshBytes = Buffer.from(serializeBinarySTL(Array.from(mesh.positions)))
+      } else {
+        const { flattenMeshForSlice } = await import('@/lib/slice/flatten-for-slice')
+        const solid = await flattenMeshForSlice(mesh)
+        meshBytes = Buffer.from(serializeBinarySTL(Array.from(solid)))
+      }
     } catch (e) {
       log.error('3mf->stl convert failed', e, { iterationId })
       return apiError(422, 'mesh_convert_failed', 'Não foi possível preparar a malha para o fatiamento.')

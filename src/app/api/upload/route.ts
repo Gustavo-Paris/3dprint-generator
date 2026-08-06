@@ -12,6 +12,7 @@ export const maxDuration = 60
 
 const MAX_BYTES_IMAGE = 5 * 1024 * 1024  // 5MB for images
 const MAX_BYTES_MESH = 50 * 1024 * 1024  // 50MB for 3MF
+const MAX_BYTES_IFC = 80 * 1024 * 1024   // 80MB for IFC BIM
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 const MESH_TYPES = [
   'model/3mf',
@@ -27,20 +28,23 @@ export async function POST(req: Request) {
   const file = form.get('file')
   if (!(file instanceof File)) return apiError(400, 'no_file', 'Nenhum arquivo enviado.')
 
-  const isMesh = MESH_TYPES.includes(file.type) || file.name.toLowerCase().endsWith('.3mf')
+  const nameLower = file.name.toLowerCase()
+  const isIfc = nameLower.endsWith('.ifc')
+  const isMesh = !isIfc && (MESH_TYPES.includes(file.type) || nameLower.endsWith('.3mf'))
   const isImage = IMAGE_TYPES.includes(file.type)
 
-  if (!isMesh && !isImage) {
-    return apiError(415, 'unsupported_type', 'Tipo de arquivo não suportado.')
+  if (!isMesh && !isImage && !isIfc) {
+    return apiError(415, 'unsupported_type', 'Tipo de arquivo não suportado. Use .3mf, .ifc ou imagem.')
   }
 
-  const limit = isMesh ? MAX_BYTES_MESH : MAX_BYTES_IMAGE
+  const limit = isIfc ? MAX_BYTES_IFC : isMesh ? MAX_BYTES_MESH : MAX_BYTES_IMAGE
   if (file.size > limit) {
     const mb = (limit / 1024 / 1024).toFixed(0)
     return apiError(413, 'file_too_large', `Arquivo muito grande (>${mb}MB).`)
   }
 
-  const ext = isMesh ? '3mf'
+  const ext = isIfc ? 'ifc'
+    : isMesh ? '3mf'
     : file.type === 'image/png' ? 'png'
     : file.type === 'image/webp' ? 'webp'
     : 'jpg'
@@ -49,8 +53,17 @@ export async function POST(req: Request) {
 
   // Don't trust the browser MIME/extension — verify the leading bytes match.
   const sniffed = sniffKind(bytes)
-  if (sniffed === null || (isMesh && sniffed !== 'mesh') || (isImage && sniffed !== 'image')) {
+  if (sniffed === null) {
     return apiError(415, 'content_mismatch', 'O conteúdo do arquivo não corresponde ao tipo declarado.')
+  }
+  if (isMesh && sniffed !== 'mesh') {
+    return apiError(415, 'content_mismatch', 'O conteúdo do arquivo não corresponde ao tipo declarado.')
+  }
+  if (isImage && sniffed !== 'image') {
+    return apiError(415, 'content_mismatch', 'O conteúdo do arquivo não corresponde ao tipo declarado.')
+  }
+  if (isIfc && sniffed !== 'ifc') {
+    return apiError(415, 'content_mismatch', 'Arquivo IFC inválido (esperado ISO-10303-21).')
   }
 
   let url: string
@@ -58,7 +71,7 @@ export async function POST(req: Request) {
     const blob = await put(`${session.user.id}/uploads/${id}.${ext}`, bytes, {
       access: 'public',
       addRandomSuffix: false,
-      contentType: isMesh ? 'application/octet-stream' : file.type,
+      contentType: isMesh || isIfc ? 'application/octet-stream' : file.type,
     })
     url = blob.url
   } else {
@@ -68,5 +81,10 @@ export async function POST(req: Request) {
     url = `/uploads/${id}.${ext}`
   }
 
-  return Response.json({ url, content_type: file.type, size: bytes.length })
+  return Response.json({
+    url,
+    content_type: file.type,
+    size: bytes.length,
+    kind: isIfc ? 'ifc' : isMesh ? 'mesh' : 'image',
+  })
 }

@@ -8,3 +8,14 @@ export function assertSliceable(status: string): Sliceable {
     ? { ok: true }
     : { ok: false, status: 409, message: `Cannot slice an iteration with status "${status}"` }
 }
+
+/**
+ * Mesh topology policy for slicing.
+ *
+ * Parametric pieces prefer watertight solids, but LSF maquetes are intentional
+ * multi-body non-watertight skeletons — never block them on manifold status.
+ * Pure helper so UI + slice route can share the same rule.
+ */
+export function allowsNonWatertightSlice(strategy: string | null | undefined): boolean {
+  return strategy === 'lsf_maquette'
+}

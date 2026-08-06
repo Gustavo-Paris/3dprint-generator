@@ -21,6 +21,12 @@ export interface PieceTraits {
   multicolor: boolean
   /** Piece will be printed standing on its thin edge (see orient.ts). */
   standing: boolean
+  /**
+   * Light Steel Frame maquete (multi-body IFC skeleton). Overrides process
+   * keys from the SteelPrime golden project:
+   * `docs/references/steelprime-lsf/golden-recipe.json`
+   */
+  lsfMaquette?: boolean
 }
 
 export interface ProfileColors {
@@ -71,6 +77,41 @@ export function buildProjectSettings(
   if (piece.standing) {
     settings.brim_type = 'outer_only'
     settings.brim_width = '5'
+  }
+
+  // SteelPrime LSF GOLDEN FINAL (2026-08-05) — docs/references/steelprime-lsf/
+  if (piece.lsfMaquette) {
+    settings.layer_height = '0.24'
+    settings.initial_layer_print_height = '0.2'
+    settings.wall_loops = '3'
+    settings.top_shell_layers = '4'
+    settings.bottom_shell_layers = '3'
+    settings.sparse_infill_density = '15%'
+    settings.sparse_infill_pattern = 'grid'
+    settings.line_width = '0.42'
+    settings.inner_wall_line_width = '0.42'
+    settings.outer_wall_line_width = '0.42'
+    settings.support_line_width = '0.42'
+    settings.initial_layer_line_width = '0.5'
+    settings.brim_type = 'outer_only'
+    settings.brim_width = '8'
+    settings.enable_support = '1'
+    settings.support_type = 'tree(auto)'
+    settings.support_on_build_plate_only = '0'
+    settings.support_threshold_angle = '25'
+    settings.support_interface_top_layers = '2'
+    settings.tree_support_branch_diameter = '2'
+    settings.tree_support_branch_distance = '5'
+    settings.detect_thin_wall = '1'
+    settings.resolution = '0.02'
+    settings.print_sequence = 'by layer'
+    settings.elefant_foot_compensation = '0.1'
+    settings.print_settings_id = '0.24mm Standard @BBL H2D - LSF PRINTABLE'
+    settings.outer_wall_speed = fillSpeedArray(settings.outer_wall_speed, '200')
+    settings.inner_wall_speed = fillSpeedArray(settings.inner_wall_speed, '300')
+    settings.sparse_infill_speed = fillSpeedArray(settings.sparse_infill_speed, '350')
+    settings.support_speed = fillSpeedArray(settings.support_speed, '150')
+    settings.initial_layer_speed = fillSpeedArray(settings.initial_layer_speed, '50')
   }
 
   return settings

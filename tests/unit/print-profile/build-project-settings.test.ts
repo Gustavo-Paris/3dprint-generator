@@ -104,4 +104,28 @@ describe('buildProjectSettings', () => {
     expect(() => JSON.parse(json)).not.toThrow()
     expect(json.length).toBeLessThan(200 * 1024)
   })
+
+  it('lsfMaquette applies SteelPrime GOLDEN FINAL process keys', () => {
+    const out = buildProjectSettings(h2d, {
+      multicolor: false,
+      standing: false,
+      lsfMaquette: true,
+    })!
+    expect(out.layer_height).toBe('0.24')
+    expect(out.wall_loops).toBe('3')
+    expect(out.sparse_infill_density).toBe('15%')
+    expect(out.sparse_infill_pattern).toBe('grid')
+    expect(out.brim_type).toBe('outer_only')
+    expect(out.brim_width).toBe('8')
+    expect(out.enable_support).toBe('1')
+    expect(out.support_type).toBe('tree(auto)')
+    expect(out.support_on_build_plate_only).toBe('0')
+    expect(out.detect_thin_wall).toBe('1')
+    expect(out.tree_support_branch_diameter).toBe('2')
+    expect(out.resolution).toBe('0.02')
+    expect(out.initial_layer_line_width).toBe('0.5')
+    expect(out.print_settings_id).toBe(
+      '0.24mm Standard @BBL H2D - LSF PRINTABLE',
+    )
+  })
 })

@@ -34,6 +34,15 @@ export type MeshBannerState =
   | { show: false }
   | { show: true; tone: 'info' | 'warn'; title: string; detail: string }
 
+export type MeshValidityBannerOpts = {
+  /**
+   * LSF maquete (and similar multi-body skeletons): open edges between
+   * independent members are expected. Never treat that as a print defect —
+   * only non-finite coordinates remain a real warning.
+   */
+  expectMultiBody?: boolean
+}
+
 /**
  * Map a validity report to the advisory banner state.
  *
@@ -42,8 +51,32 @@ export type MeshBannerState =
  * despite the ~88 hole-rim boundary edges JSCAD's BSP subtract leaves behind.
  * So those are an INFORMATIONAL note, not an alarm. Only non-finite coordinates
  * (NaN/±Infinity) are genuinely unprintable and keep a real warning.
+ *
+ * When `expectMultiBody` is set (LSF maquete), non-watertight multi-member
+ * soups are expected and get a calm LSF-specific note instead of a hole warning.
  */
-export function meshValidityBanner(report: MeshValidityReport | null): MeshBannerState {
+export function meshValidityBanner(
+  report: MeshValidityReport | null,
+  opts: MeshValidityBannerOpts = {},
+): MeshBannerState {
+  if (opts.expectMultiBody) {
+    if (report && report.analyzed && report.nonFiniteTriangles > 0) {
+      return {
+        show: true,
+        tone: 'warn',
+        title: 'Malha com coordenadas inválidas',
+        detail: 'pode falhar na impressão.',
+      }
+    }
+    return {
+      show: true,
+      tone: 'info',
+      title: 'Maquete LSF multi-corpo',
+      detail:
+        'aberturas entre membros são esperadas; perfil H2D usa tree support + brim.',
+    }
+  }
+
   if (!report || !report.analyzed || report.watertight) return { show: false }
   if (report.nonFiniteTriangles > 0) {
     return {

@@ -13,10 +13,13 @@ import { meshValidityBanner, type MeshValidityReport } from '@/lib/mesh/validity
  */
 export default function MeshValidityBanner({
   report,
+  expectMultiBody = false,
 }: {
   report: MeshValidityReport | null
+  /** LSF maquete: multi-body non-watertight is intentional. */
+  expectMultiBody?: boolean
 }) {
-  const state = meshValidityBanner(report)
+  const state = meshValidityBanner(report, { expectMultiBody })
   if (!state.show) return null
 
   const tone =

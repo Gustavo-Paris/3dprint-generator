@@ -11,6 +11,9 @@ describe('badgeFor', () => {
   it('shows imported for uploaded-mesh designs', () => {
     expect(badgeFor({ kind: 'imported', baseMeshUrl: '/x.3mf' })).toBe('imported')
   })
+  it('shows lsf for LSF maquete designs', () => {
+    expect(badgeFor({ kind: 'lsf_maquette', ifcUrl: '/uploads/x.ifc' })).toBe('lsf')
+  })
   it('falls back to jscad when design is missing/unknown', () => {
     expect(badgeFor(undefined)).toBe('jscad')
   })

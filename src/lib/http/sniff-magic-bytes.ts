@@ -1,5 +1,5 @@
 /** Identify a file by its leading bytes (don't trust browser MIME). */
-export function sniffKind(buf: Uint8Array): 'image' | 'mesh' | null {
+export function sniffKind(buf: Uint8Array): 'image' | 'mesh' | 'ifc' | null {
   const b = buf
   // PNG: 89 50 4E 47
   if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image'
@@ -10,5 +10,10 @@ export function sniffKind(buf: Uint8Array): 'image' | 'mesh' | null {
       b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image'
   // ZIP / 3MF (OPC): 'PK'
   if (b[0] === 0x50 && b[1] === 0x4b) return 'mesh'
+  // IFC STEP text: "ISO-10303-21" (12 ASCII bytes)
+  if (b.length >= 12) {
+    const head = String.fromCharCode(...b.slice(0, 12))
+    if (head === 'ISO-10303-21') return 'ifc'
+  }
   return null
 }

@@ -150,6 +150,9 @@ export async function generateFromDesign(
       // Freeform Designs are generated asynchronously by the /api/generate route
       // (Meshy text/image-to-3D), never by the synchronous parametric builder.
       throw new Error('freeform Designs are handled by the Meshy path in the generate route, not generateFromDesign')
+    case 'lsf_maquette':
+      // LSF maquetes are built by POST /api/lsf-maquete (Python IFC worker).
+      throw new Error('lsf_maquette Designs are handled by /api/lsf-maquete, not generateFromDesign')
     default: {
       const _: never = design
       throw new Error(`Unhandled design kind: ${_}`)
