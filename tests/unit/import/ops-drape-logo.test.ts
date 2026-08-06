@@ -190,7 +190,49 @@ describe('measureLocalFaceExtent (logo auto-fit to the clicked face)', () => {
       [0, -1, 0],
       22.5,          // 45mm logo — typical can monogram
     )
-    expect(cap).toBeGreaterThanOrEqual(40)
+    // Still allows a decent monogram, but circumferential wrap is capped
+    // (no more 45mm flat coin hugging half the can).
+    expect(cap).toBeGreaterThanOrEqual(28)
+    expect(cap).toBeLessThanOrEqual(55)
+  })
+})
+
+describe('fitLogoIntoRoom (asymmetric pedestal click)', () => {
+  it('scales and shifts a logo when the click is near the floor of a band', async () => {
+    const { fitLogoIntoRoom } = await import('@/lib/import/ops/drape-logo')
+    // Click near bottom: 4mm down, 18mm up, ± left/right
+    const room = {
+      uPlus: 20,
+      uMinus: 20,
+      vPlus: 18,
+      vMinus: 4,
+      uSpan: 40,
+      vSpan: 22,
+      tangent: [1, 0, 0] as [number, number, number],
+      bitangent: [0, 0, 1] as [number, number, number],
+    }
+    const fit = fitLogoIntoRoom(40, 30, room) // requested much larger than room
+    // Must shrink to free height (~22mm with margin)
+    expect(fit.finalH).toBeLessThanOrEqual(22 * 0.95)
+    expect(fit.fitFactor).toBeLessThan(1)
+    // Shift UP toward the roomier side so the monogram clears the floor
+    expect(fit.shiftV).toBeGreaterThan(5)
+    expect(Math.abs(fit.shiftU)).toBeLessThan(0.01)
+  })
+
+  it('shouldDrapeLogo is true on vertical walls even when the patch is locally smooth', async () => {
+    const { shouldDrapeLogo } = await import('@/lib/import/ops/drape-logo')
+    const wall = new Float32Array([
+      -10, 0, 0, 10, 0, 0, 10, 0, 20,
+      -10, 0, 0, 10, 0, 20, -10, 0, 20,
+    ])
+    expect(shouldDrapeLogo(wall, [0, 0, 10], [0, -1, 0])).toBe(true)
+    // Horizontal top plate — planar → no drape
+    const top = new Float32Array([
+      -10, -10, 0, 10, -10, 0, 10, 10, 0,
+      -10, -10, 0, 10, 10, 0, -10, 10, 0,
+    ])
+    expect(shouldDrapeLogo(top, [0, 0, 0], [0, 0, 1])).toBe(false)
   })
 })
 

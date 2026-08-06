@@ -62,38 +62,46 @@ export async function applyAddLogo(
 
   const isThrough = op.treatment === 'through_cut'
 
-  // Measure the CLICKED face's tangent spans (u = horizontal, v = vertical).
-  // bbox-derived size suggestions dwarf local faces on figurines (prod,
-  // 2026-07-31); and capping the logo's MAX dimension by the MIN span shrank
-  // wide wordmarks to a third of the available width (prod, 2026-08-02) —
-  // the per-axis spans let a 3:1 wordmark fill the band width as long as its
-  // HEIGHT fits the band. The actual scaling happens after tracing, when the
-  // logo's real aspect ratio is known.
-  const { measureLocalFaceSpans, filterTrianglesNear: filterNearForFit } =
-    await import('./drape-logo')
-  let faceSpans: { uSpan: number; vSpan: number } | null = null
-  const fitHost = filterNearForFit(mesh.positions, placeCentroid, op.sizeMm / 2 + 8)
+  // Measure free room around the click (asymmetric). Symmetric min-span alone
+  // left logos hanging off pedestal bottoms when the user clicked low
+  // (prod, 2026-08-05 5G-on-funko). Room drives both scale AND a shift of the
+  // anchor toward the roomier side of the face.
+  const {
+    measureLocalFaceRoom,
+    fitLogoIntoRoom,
+    filterTrianglesNear: filterNearForFit,
+    shouldDrapeLogo,
+  } = await import('./drape-logo')
+  type Room = import('./drape-logo').LocalFaceRoom
+  let faceRoom: Room | null = null
+  const fitRadius = Math.max(op.sizeMm, 24) / 2 + 10
+  const fitHost = filterNearForFit(mesh.positions, placeCentroid, fitRadius)
   if (fitHost.length >= 9) {
-    faceSpans = measureLocalFaceSpans(fitHost, placeCentroid, placeNormal, op.sizeMm / 2)
+    faceRoom = measureLocalFaceRoom(fitHost, placeCentroid, placeNormal, Math.max(op.sizeMm, 24) / 2)
     // Small faces need a finer second pass — the first one marched with
     // steps sized for the REQUESTED logo, too coarse for a tiny pedestal.
-    if (Math.max(faceSpans.uSpan, faceSpans.vSpan) < 15) {
-      faceSpans = measureLocalFaceSpans(
+    if (Math.max(faceRoom.uSpan, faceRoom.vSpan) < 15) {
+      faceRoom = measureLocalFaceRoom(
         fitHost,
         placeCentroid,
         placeNormal,
-        Math.max(Math.max(faceSpans.uSpan, faceSpans.vSpan) * 0.75, 3),
+        Math.max(Math.max(faceRoom.uSpan, faceRoom.vSpan) * 0.75, 3),
       )
     }
   }
 
-  // Cap depth to local plate thickness. Keychains are often ~1.5–2 mm — a
-  // 1.4 mm emboss with deep embed used to nearly pierce (or poke through) and
-  // leave paper-thin residual shells the slicer flags as garbage.
-  const plateThickness = Math.min(...mesh.bbox.size)
+  // Cap depth. Keychains are thin plates (min bbox ≈ thickness). Figurines are
+  // bulky — min bbox is the XY width, so the old 0.45×min rule allowed absurd
+  // depths. For bulky meshes, hard-cap emboss/engrave so the tool doesn't
+  // pierce the pedestal shell and leave a flat green slab through the base.
+  const minDim = Math.min(...mesh.bbox.size)
+  const maxDim = Math.max(...mesh.bbox.size)
+  const isBulky = maxDim / Math.max(minDim, 1e-6) < 5 && minDim > 8
   const maxSafeDepth = isThrough
-    ? Math.max(...mesh.bbox.size) * 1.2
-    : Math.max(0.4, plateThickness * 0.45)
+    ? maxDim * 1.2
+    : isBulky
+      ? Math.min(1.2, op.depthMm)
+      : Math.max(0.4, minDim * 0.45)
   const depthMm = isThrough ? maxSafeDepth : Math.min(op.depthMm, maxSafeDepth)
 
   // through_cut must pierce the whole local thickness; size the cutter to the
@@ -101,13 +109,21 @@ export async function applyAddLogo(
   // emboss use the (capped) depth.
   const cutterDepth = depthMm
 
+  // Pre-clamp request size to free room so potrace/extrude work at printable
+  // resolution for the final footprint (not a 45 mm logo later crushed to 12).
+  let requestSizeMm = op.sizeMm
+  if (faceRoom) {
+    const roomCap = Math.max(faceRoom.uSpan, faceRoom.vSpan) * 0.92
+    if (roomCap > 1) requestSizeMm = Math.min(requestSizeMm, roomCap)
+  }
+
   // Extrude the logo using the existing pipeline.
   // extrudeLogo returns a geom3 in "standing" orientation:
   //   - logo faces +Z, depth along Y, centered at origin
   //   - scaled so largest XZ dim = targetMaxDim, Y depth = depthMm
   const logoResult = await extrudeLogo({
     imageBuffer: imgBuffer,
-    targetMaxDim: op.sizeMm,
+    targetMaxDim: requestSizeMm,
     depthMm: cutterDepth,
     // Printable monogram: drop speckles, simplify curves a bit, fatten stems
     // so 0.4 mm nozzles don't leave sub-layer white-dot garbage in Bambu.
@@ -128,36 +144,43 @@ export async function applyAddLogo(
   const { transforms } =
     (jscadNs as unknown as { default?: typeof import('@jscad/modeling') }).default ?? jscadNs
 
-  // Per-axis fit: scale the traced logo so its WIDTH fits the horizontal
-  // span and its HEIGHT the vertical span of the clicked face (standing
-  // solid: width = X, height = Z, depth = Y — depth is NOT scaled).
+  // Fit into free room: scale + in-plane shift so a low click on a pedestal
+  // doesn't leave half the monogram hanging under the base.
   let standing = logoResult.geom3 as Geom3
-  let effectiveSizeMm = op.sizeMm
-  if (faceSpans) {
+  let effectiveSizeMm = requestSizeMm
+  let shiftU = 0
+  let shiftV = 0
+  if (faceRoom) {
     const logoW = logoResult.meta.bboxMm.x || 1
     const logoH = logoResult.meta.bboxMm.z || 1
-    const fitFactor = Math.min(1, faceSpans.uSpan / logoW, faceSpans.vSpan / logoH)
-    const finalW = logoW * fitFactor
-    const finalH = logoH * fitFactor
+    const fit = fitLogoIntoRoom(logoW, logoH, faceRoom)
     // NEVER force a floor above what the face fits (the old 12 mm floor made
     // logos larger than small-figurine pedestals → boolean shrapnel). A logo
     // under ~6 mm is unprintable noise with a 0.4 nozzle — skip with a clear
     // message instead of producing garbage.
-    if (Math.max(finalW, finalH) < 6) {
+    if (Math.max(fit.finalW, fit.finalH) < 6) {
       throw new Error(
-        `a face clicada só comporta ~${Math.max(1, Math.round(Math.max(finalW, finalH)))}mm de logo — ` +
-          'muito pequeno para imprimir. Clique numa área maior (ex.: frente do corpo) ' +
+        `a face clicada só comporta ~${Math.max(1, Math.round(Math.max(fit.finalW, fit.finalH)))}mm de logo — ` +
+          'muito pequeno para imprimir. Clique no meio da face (ex.: peito ou centro do pedestal) ' +
           'ou aumente o modelo antes de aplicar o logo.',
       )
     }
-    if (fitFactor < 0.98) {
-      standing = transforms.scale([fitFactor, 1, fitFactor], standing as never) as Geom3
+    if (fit.fitFactor < 0.98) {
+      standing = transforms.scale([fit.fitFactor, 1, fit.fitFactor], standing as never) as Geom3
       warn?.(
-        `logo ajustado para ${Math.round(finalW)}×${Math.round(finalH)}mm ` +
+        `logo ajustado para ${Math.round(fit.finalW)}×${Math.round(fit.finalH)}mm ` +
           'para caber na face clicada',
       )
     }
-    effectiveSizeMm = Math.max(finalW, finalH)
+    if (Math.abs(fit.shiftU) > 0.3 || Math.abs(fit.shiftV) > 0.3) {
+      warn?.(
+        `logo recentrado +${Math.round(fit.shiftU)}mm / +${Math.round(fit.shiftV)}mm ` +
+          'para não sair da face',
+      )
+    }
+    shiftU = fit.shiftU
+    shiftV = fit.shiftV
+    effectiveSizeMm = Math.max(fit.finalW, fit.finalH)
   }
 
   // Lay the logo flat: rotateX(-π/2) maps standing → flat.
@@ -190,13 +213,17 @@ export async function applyAddLogo(
     ) as Geom3
   }
 
-  // Compute tangent frame for in-plane offset.
-  const { tangent, bitangent } = makeFrame(placeNormal)
+  // Prefer the room's tangent frame (matches the march axes) so shiftU/V
+  // land on the same basis; fall back to makeFrame for faces with no room.
+  const tangent = faceRoom?.tangent ?? makeFrame(placeNormal).tangent
+  const bitangent = faceRoom?.bitangent ?? makeFrame(placeNormal).bitangent
 
-  // Base world position: anchor/centroid + in-plane offset.
-  const wx = placeCentroid[0] + op.offsetMm[0] * tangent[0] + op.offsetMm[1] * bitangent[0]
-  const wy = placeCentroid[1] + op.offsetMm[0] * tangent[1] + op.offsetMm[1] * bitangent[1]
-  const wz = placeCentroid[2] + op.offsetMm[0] * tangent[2] + op.offsetMm[1] * bitangent[2]
+  // Base world position: anchor + LLM offset + room re-center shift.
+  const ou = op.offsetMm[0] + shiftU
+  const ov = op.offsetMm[1] + shiftV
+  const wx = placeCentroid[0] + ou * tangent[0] + ov * bitangent[0]
+  const wy = placeCentroid[1] + ou * tangent[1] + ov * bitangent[1]
+  const wz = placeCentroid[2] + ou * tangent[2] + ov * bitangent[2]
 
   // Shift along the face normal. The flat geom is centred at Z=0, so:
   //   - embossed: protrude outward, but sink the base `embed` mm below the
@@ -224,31 +251,35 @@ export async function applyAddLogo(
   const { booleanSoup } = await import('../manifold-csg')
   let toolBody = await geom3ToBaseMesh(placed, 'B')
 
-  // Drape onto curved hosts only (forehead, cylinders…). Flat keychains /
-  // plaques skip this — raycast jitter on dense planar meshes created
-  // micro-spikes the slicer shows as white garbage.
+  // Drape onto curved hosts / vertical walls (forehead, cylinders, pedestals).
+  // Flat keychains / plaques skip this — raycast jitter on dense planar
+  // meshes created micro-spikes the slicer shows as white garbage.
+  // Drape around the SHIFTED center (wx,wy,wz projected back isn't needed —
+  // use the shifted surface point on the normal ray).
   if (!isThrough) {
-    const { drapeLogoPositions, filterTrianglesNear, isLocallyPlanar, subdivideSoupToMaxEdge } =
+    const { drapeLogoPositions, filterTrianglesNear, subdivideSoupToMaxEdge } =
       await import('./drape-logo')
-    const radius = effectiveSizeMm * 0.75 + 4
-    const localHost = filterTrianglesNear(mesh.positions, placeCentroid, radius)
-    if (localHost.length >= 9 && !isLocallyPlanar(localHost, placeCentroid, placeNormal)) {
-      // Refine the coarse extruded logo first — bending happens only at
-      // vertices, so long potrace segments facet visibly on curvature.
-      const refined = subdivideSoupToMaxEdge(
-        toolBody.positions,
-        Math.min(1.2, effectiveSizeMm / 14),
-      )
+    const radius = effectiveSizeMm * 0.85 + 6
+    // Surface anchor after in-plane shift (still on the face plane ≈).
+    const drapeCenter: [number, number, number] = [
+      placeCentroid[0] + ou * tangent[0] + ov * bitangent[0],
+      placeCentroid[1] + ou * tangent[1] + ov * bitangent[1],
+      placeCentroid[2] + ou * tangent[2] + ov * bitangent[2],
+    ]
+    const localHost = filterTrianglesNear(mesh.positions, drapeCenter, radius)
+    if (localHost.length >= 9 && shouldDrapeLogo(localHost, drapeCenter, placeNormal)) {
+      // Finer subdivision on tight cylinders so the monogram bends cleanly.
+      const maxEdge = Math.min(0.9, effectiveSizeMm / 18)
+      const refined = subdivideSoupToMaxEdge(toolBody.positions, maxEdge)
       const draped = drapeLogoPositions(
         refined,
         localHost,
-        placeCentroid,
+        drapeCenter,
         placeNormal,
         normalShift,
       )
       toolBody = recomputeMeshDerived({
         positions: draped,
-        // subdivision multiplied the triangle count; the whole tool is B
         extruders: new Array(draped.length / 9).fill('B') as Array<'A' | 'B'>,
         triangleCount: draped.length / 9,
       })

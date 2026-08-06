@@ -265,6 +265,27 @@ export function measureLocalFaceExtent(
   return Math.min(uSpan, vSpan)
 }
 
+/**
+ * Free room around the click on the host face, along the tangent frame.
+ * Asymmetric on purpose: a click near the bottom of a pedestal has little
+ * room "down" and a lot "up" — callers must SHIFT the logo toward the roomy
+ * side, not only scale it (prod, 2026-08-05: 5G logo hanging off the base).
+ */
+export type LocalFaceRoom = {
+  /** Distance from click along +u (reading direction) until ledge/miss. */
+  uPlus: number
+  uMinus: number
+  /** Distance from click along +v (text-up) until ledge/miss. */
+  vPlus: number
+  vMinus: number
+  /** Total free width / height (uPlus+uMinus, vPlus+vMinus). */
+  uSpan: number
+  vSpan: number
+  /** Unit tangent (reading) and bitangent (up) used for the march. */
+  tangent: [number, number, number]
+  bitangent: [number, number, number]
+}
+
 /** Per-axis variant of `measureLocalFaceExtent`: returns the symmetric spans
  *  along both tangent axes separately. Wide logos (wordmarks) only need to
  *  fit their HEIGHT into the short axis — capping the max dimension by the
@@ -275,16 +296,31 @@ export function measureLocalFaceSpans(
   normal: readonly [number, number, number],
   maxHalfMm: number,
 ): { uSpan: number; vSpan: number } {
+  const room = measureLocalFaceRoom(hostPositions, center, normal, maxHalfMm)
+  // Symmetric spans (legacy callers): 2 × the tighter side so a centered logo
+  // never overhangs. Prefer measureLocalFaceRoom + fitLogoIntoRoom for new code.
+  return {
+    uSpan: 2 * Math.min(room.uPlus, room.uMinus),
+    vSpan: 2 * Math.min(room.vPlus, room.vMinus),
+  }
+}
+
+export function measureLocalFaceRoom(
+  hostPositions: Float32Array,
+  center: readonly [number, number, number],
+  normal: readonly [number, number, number],
+  maxHalfMm: number,
+): LocalFaceRoom {
   // Scale-adaptive marching: the original fixed 1.5/2.5/4 mm constants were
   // tuned on ≥60 mm meshes; on a 24 mm figurine the ledge threshold exceeded
   // the whole pedestal band and the probe overshot the surface. All three
   // converge to the original values for maxHalfMm ≥ ~15.
   const STEP_MM = Math.min(1.5, Math.max(0.35, maxHalfMm / 10))
-  const LEDGE_MM = Math.min(2.5, Math.max(0.8, maxHalfMm * 0.22))
+  // Slightly tighter ledge than before so a pedestal→floor transition is
+  // caught even when the bottom disk is still "hit" by the probe ray.
+  const LEDGE_MM = Math.min(2.0, Math.max(0.7, maxHalfMm * 0.18))
   const PROBE_HEIGHT_MM = Math.min(4, Math.max(1.2, maxHalfMm / 3))
   const [nx, ny, nz] = normal
-  // tangent frame (same construction as ops/_shared makeFrame, inlined to
-  // keep this module dependency-free)
   const ref: [number, number, number] =
     Math.abs(nz) < 0.9 ? [0, 0, 1] : [1, 0, 0]
   let tx = ref[1] * nz - ref[2] * ny
@@ -320,10 +356,75 @@ export function measureLocalFaceSpans(
   const uMinus = marchLimit(-1, tx, ty, tz)
   const vPlus = marchLimit(1, bx, by, bz)
   const vMinus = marchLimit(-1, bx, by, bz)
-  return {
-    uSpan: 2 * Math.min(uPlus, uMinus),
-    vSpan: 2 * Math.min(vPlus, vMinus),
+
+  // On cylinders the u-march wraps the circumference and reports a huge free
+  // width — a flat 45 mm monogram then "fits" and hangs in the air. Cap only
+  // when the IMMEDIATE patch under the click is curved (not when a far ledge
+  // like pedestal→torso makes the full host non-planar — that still wants a
+  // wide wordmark on a flat band).
+  let uP = uPlus
+  let uM = uMinus
+  const curveR = Math.min(8, Math.max(3, maxHalfMm * 0.4))
+  const curvePatch = filterTrianglesNear(hostPositions, center, curveR)
+  const curved =
+    curvePatch.length >= 9 && !isLocallyPlanar(curvePatch, center, normal)
+  if (curved && Math.abs(nz) < 0.55) {
+    // Hard ceiling: ~1.35× free vertical room (readable monogram, no wrap).
+    const vRoom = vPlus + vMinus
+    const uCap = Math.max(10, vRoom * 1.35)
+    uP = Math.min(uP, uCap / 2)
+    uM = Math.min(uM, uCap / 2)
   }
+
+  return {
+    uPlus: uP,
+    uMinus: uM,
+    vPlus,
+    vMinus,
+    uSpan: uP + uM,
+    vSpan: vPlus + vMinus,
+    tangent: [tx, ty, tz],
+    bitangent: [bx, by, bz],
+  }
+}
+
+/**
+ * Scale a logo of size (logoW × logoH) into the free room, and return the
+ * in-plane shift (along room.tangent / room.bitangent) that keeps the logo
+ * fully on the host when the click is off-center (near a ledge).
+ *
+ * Margin (default 8%) keeps a hair of shell around the monogram so the
+ * boolean doesn't nibble the pedestal rim.
+ */
+export function fitLogoIntoRoom(
+  logoW: number,
+  logoH: number,
+  room: LocalFaceRoom,
+  margin = 0.08,
+): { fitFactor: number; shiftU: number; shiftV: number; finalW: number; finalH: number } {
+  const availW = Math.max(0.1, room.uSpan * (1 - margin))
+  const availH = Math.max(0.1, room.vSpan * (1 - margin))
+  const fitFactor = Math.min(1, availW / Math.max(logoW, 1e-6), availH / Math.max(logoH, 1e-6))
+  const finalW = logoW * fitFactor
+  const finalH = logoH * fitFactor
+  // Center of available band relative to the click:
+  // band u ∈ [−uMinus, +uPlus] → midpoint at (uPlus − uMinus) / 2.
+  const shiftU = (room.uPlus - room.uMinus) / 2
+  const shiftV = (room.vPlus - room.vMinus) / 2
+  return { fitFactor, shiftU, shiftV, finalW, finalH }
+}
+
+/** True when the host near the click is curved enough (or is a side wall) that
+ *  the planar logo must be draped — otherwise it floats as a flat coin. */
+export function shouldDrapeLogo(
+  hostPositions: Float32Array,
+  center: readonly [number, number, number],
+  normal: readonly [number, number, number],
+): boolean {
+  // Side / near-vertical walls: always drape (figurine pedestal, can, mug).
+  if (Math.abs(normal[2]) < 0.55) return true
+  if (hostPositions.length < 9) return false
+  return !isLocallyPlanar(hostPositions, center, normal)
 }
 
 /**

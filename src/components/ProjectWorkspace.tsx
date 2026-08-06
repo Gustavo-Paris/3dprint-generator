@@ -485,8 +485,9 @@ export default function ProjectWorkspace({
     normal: [number, number, number]
   } | null>(null)
   const [placeTreatment, setPlaceTreatment] = useState<'embossed' | 'engraved'>('engraved')
-  // Default grows once the mesh is known (see Logo aqui toggle).
-  const [placeSizeMm, setPlaceSizeMm] = useState(45)
+  // Conservative default for figurine pedestals / cans — server still clamps
+  // to free face room. 45 mm was drowning short bases (prod 2026-08-05).
+  const [placeSizeMm, setPlaceSizeMm] = useState(28)
   const [placing, setPlacing] = useState(false)
   // Keyboard alternative to click-to-place: mm offsets from the mesh top-center.
   const [logoX, setLogoX] = useState(0)
@@ -536,8 +537,10 @@ export default function ProjectWorkspace({
               normal: p.normal,
               treatment: placeTreatment,
               sizeMm: placeSizeMm,
-              // Multi-colour engraving needs ≥ ~2 layers of B filament.
-              depthMm: placeTreatment === 'engraved' ? 1.6 : 1.4,
+              // Shallower on import path: figurine shells are thin; 1.6 mm was
+              // piercing pedestals and leaving a flat multi-colour slab.
+              // Server re-caps for bulky meshes too.
+              depthMm: placeTreatment === 'engraved' ? 1.0 : 1.2,
             },
             pendingMeshUrl,
             pendingPreviews,
@@ -1097,11 +1100,11 @@ export default function ProjectWorkspace({
                   Tamanho
                   <input
                     type="number"
-                    min={10}
+                    min={8}
                     max={150}
                     step={1}
                     value={placeSizeMm}
-                    onChange={(e) => setPlaceSizeMm(Math.max(10, Math.min(150, Number(e.target.value) || 40)))}
+                    onChange={(e) => setPlaceSizeMm(Math.max(8, Math.min(150, Number(e.target.value) || 28)))}
                     className="w-16 border border-slate-600 bg-slate-800 text-slate-100 rounded px-1 py-0.5"
                     aria-label="Tamanho do logo em milímetros (maior dimensão)"
                   />
