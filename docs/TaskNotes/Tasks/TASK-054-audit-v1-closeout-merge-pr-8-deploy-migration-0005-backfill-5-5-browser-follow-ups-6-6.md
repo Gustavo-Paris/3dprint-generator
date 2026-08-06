@@ -1,8 +1,9 @@
 ---
 uid: task-054
-status: open
+status: done
 priority: normal
 scheduled: 2026-06-12
+completed: 2026-08-06
 pomodoros: 0
 tags:
 - task

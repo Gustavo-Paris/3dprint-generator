@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { resolveInsidePublic } from '@/lib/http/resolve-inside-public'
+import { resolveLocalAssetPath } from '@/lib/storage/local-asset'
 import { parse3mf } from '@/lib/3mf/parse-3mf'
 import { isPaintBin, decodePaintBin } from '@/lib/3mf/paint-bin'
 import type { BaseMesh } from './types'
@@ -15,8 +15,8 @@ export async function loadBaseMeshFromUrl(url: string): Promise<BaseMesh> {
     if (!res.ok) throw new Error(`fetch ${url} failed: ${res.status}`)
     buf = new Uint8Array(await res.arrayBuffer())
   } else {
-    // Local path served by Next from `public/`, with traversal containment.
-    const filePath = resolveInsidePublic(url)
+    // Private store (+ legacy public/) — never assume static public/ serve.
+    const filePath = await resolveLocalAssetPath(url)
     buf = new Uint8Array(await readFile(filePath))
   }
   if (buf.byteLength > MAX_BYTES) {

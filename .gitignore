@@ -63,6 +63,8 @@ test-results/
 playwright-report/
 public/meshes/
 public/uploads/
+# Private local asset store (auth-gated via route handlers)
+.data/
 
 # debug artifacts (ad-hoc dumps from logo / mesh tracing)
 public/debug-*

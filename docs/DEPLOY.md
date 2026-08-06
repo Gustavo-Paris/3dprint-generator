@@ -32,17 +32,28 @@ Either set them as env (`AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`, and
 
 ### Railway
 
-1. New project → deploy from the GitHub repo. Add a Postgres plugin.
+1. New project → deploy from the GitHub repo (**Settings → Source** connect the
+   repo so each push to `main` deploys — CHORE-006). Add a Postgres plugin.
 2. Set the env vars above (`DATABASE_URL` is provided by the plugin).
-3. Build: `pnpm build` · Start: `pnpm start`.
-4. Migrations run automatically: `railway.json` sets
-   `preDeployCommand: node scripts/migrate.mjs`. It uses drizzle-orm's migrator
-   (a runtime dep — `drizzle-kit` is a devDependency and may not survive a
-   production install) and exits non-zero on failure, so a bad migration aborts
-   the deploy and the previous release keeps serving.
+3. **Volume** at `/data` for local meshes/uploads when not using Vercel Blob.
+   `railway.json` start command sets:
+   `MESH_STORAGE_DIR=/data/meshes` · `UPLOAD_STORAGE_DIR=/data/uploads`
+   (files are **not** under `public/` — served only via authenticated routes).
+4. Build: `pnpm build` · Start: from `railway.json`.
+5. Migrations run automatically: `preDeployCommand: node scripts/migrate.mjs`.
 
-This repo is **not** wired to auto-deploy from GitHub (see CHORE-006); ship with
-`railway up --service 3dprint-generator --ci` from the repo root.
+### Optional storage env
+
+| Var | Default | Notes |
+|-----|---------|--------|
+| `MESH_STORAGE_DIR` | `.data/meshes` | Local mesh files (private) |
+| `UPLOAD_STORAGE_DIR` | `.data/uploads` | Local uploads (private) |
+| `BLOB_READ_WRITE_TOKEN` | — | If set, assets go to Vercel Blob instead |
+
+### Secrets rotation (CHORE-005)
+
+If keys were ever pasted in chat: rotate `AUTH_RESEND_KEY` (Resend) and
+`MESHY_API_KEY` (Meshy), update Railway env + local `.env.local`, redeploy.
 
 ### Vercel
 

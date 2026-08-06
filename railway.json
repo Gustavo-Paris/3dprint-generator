@@ -5,7 +5,7 @@
   },
   "deploy": {
     "preDeployCommand": "node scripts/migrate.mjs",
-    "startCommand": "mkdir -p /data/uploads /data/meshes && rm -rf public/uploads public/meshes && ln -sfn /data/uploads public/uploads && ln -sfn /data/meshes public/meshes && pnpm start",
+    "startCommand": "mkdir -p /data/uploads /data/meshes && MESH_STORAGE_DIR=/data/meshes UPLOAD_STORAGE_DIR=/data/uploads pnpm start",
     "healthcheckPath": "/",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE"

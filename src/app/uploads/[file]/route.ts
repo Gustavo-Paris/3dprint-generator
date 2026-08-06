@@ -13,8 +13,9 @@
  */
 import { auth } from '@/auth'
 import { apiError } from '@/lib/http/api-error'
+import { resolveLocalAssetPath } from '@/lib/storage/local-asset'
 import { readFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
 
 export const runtime = 'nodejs'
 
@@ -42,7 +43,7 @@ export async function GET(
 
   let bytes: Buffer
   try {
-    bytes = await readFile(join(process.cwd(), 'public', 'uploads', name))
+    bytes = await readFile(await resolveLocalAssetPath(`/uploads/${name}`))
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       return apiError(404, 'not_found', 'Arquivo não encontrado.')

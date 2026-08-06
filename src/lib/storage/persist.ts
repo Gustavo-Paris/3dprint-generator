@@ -1,19 +1,20 @@
 import { del, put } from '@vercel/blob'
 import { mkdir, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname } from 'node:path'
 import { env } from '@/env'
+import { meshWritePath, resolveLocalAssetPath } from '@/lib/storage/local-asset'
 
 /**
  * Persist a generated mesh and return a URL the viewer/slicer can load.
  *
  * Blob-or-local: writes to Vercel Blob when BLOB_READ_WRITE_TOKEN is set, else
- * to public/meshes/ for local dev. The extension + content-type are derived from
- * the bytes (3MF is a ZIP — `PK\x03\x04` magic — everything else is treated as
- * binary STL), so a single call site handles both the parametric .stl and the
- * multi-body .3mf path.
+ * to the private mesh dir (MESH_STORAGE_DIR or `.data/meshes`) — NOT under
+ * public/, so Next never serves meshes without auth. The extension + content-type
+ * are derived from the bytes (3MF is a ZIP — `PK\x03\x04` magic — everything else
+ * is treated as binary STL).
  *
  * Key layout: `${userId}/${projectId}/${iterationId}.${ext}` (Blob) or
- * `/meshes/${iterationId}.${ext}` (local).
+ * `/meshes/${iterationId}.${ext}` (local URL; file under private store).
  */
 export async function persistMesh(
   bytes: Uint8Array,
@@ -32,24 +33,33 @@ export async function persistMesh(
     })
     return blob.url
   }
-  const dir = join(process.cwd(), 'public', 'meshes')
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, `${iterationId}.${ext}`), Buffer.from(bytes))
+  const abs = meshWritePath(`${iterationId}.${ext}`)
+  await mkdir(dirname(abs), { recursive: true })
+  await writeFile(abs, Buffer.from(bytes))
   return `/meshes/${iterationId}.${ext}`
 }
 
 /** Delete a persisted asset (mesh, sliced 3MF, uploaded image, or imported base).
- *  http(s) → Vercel blob; local '/meshes/...' or '/uploads/...' → public file.
- *  Swallows "already gone" so the orphan-sweep stays idempotent. */
+ *  http(s) → Vercel blob; local '/meshes/...' or '/uploads/...' → private store
+ *  (+ legacy public/ path). Swallows "already gone" so orphan-sweep stays idempotent. */
 export async function delMesh(meshUrl: string): Promise<void> {
   if (meshUrl.startsWith('http')) {
     await del(meshUrl, { token: env.BLOB_READ_WRITE_TOKEN })
     return
   }
   if (meshUrl.startsWith('/meshes/') || meshUrl.startsWith('/uploads/')) {
-    const abs = join(process.cwd(), 'public', meshUrl.replace(/^\//, ''))
+    // Delete primary path; also try legacy public/ for pre-migration files.
+    const abs = await resolveLocalAssetPath(meshUrl)
     await unlink(abs).catch((e: NodeJS.ErrnoException) => {
       if (e.code !== 'ENOENT') throw e
     })
+    // If primary was private store, also clear legacy public copy if present.
+    if (meshUrl.startsWith('/meshes/') || meshUrl.startsWith('/uploads/')) {
+      const { join } = await import('node:path')
+      const legacy = join(process.cwd(), 'public', meshUrl.replace(/^\//, ''))
+      if (legacy !== abs) {
+        await unlink(legacy).catch(() => {})
+      }
+    }
   }
 }

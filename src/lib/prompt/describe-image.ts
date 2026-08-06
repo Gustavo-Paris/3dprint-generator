@@ -1,6 +1,6 @@
 import { generateText } from 'ai'
 import { getClassifierModel } from '@/lib/llm/model'
-import { resolveInsidePublic } from '@/lib/http/resolve-inside-public'
+import { resolveLocalAssetPath } from '@/lib/storage/local-asset'
 import { readFile } from 'node:fs/promises'
 
 /**
@@ -20,7 +20,7 @@ export async function describeImage(imageUrl: string): Promise<string> {
   if (imageUrl.startsWith('http')) {
     resolvedUrl = imageUrl
   } else if (imageUrl.startsWith('/uploads/')) {
-    const filePath = resolveInsidePublic(imageUrl)
+    const filePath = await resolveLocalAssetPath(imageUrl)
     const bytes = await readFile(filePath)
     const ext = imageUrl.split('.').pop()?.toLowerCase() ?? 'png'
     const mime =

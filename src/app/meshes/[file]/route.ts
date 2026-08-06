@@ -1,28 +1,23 @@
 /**
- * GET /meshes/[file] — serve runtime-generated meshes in production builds.
+ * GET /meshes/[file] — sole local path for mesh bytes (auth + optional gzip).
  *
- * Without BLOB_READ_WRITE_TOKEN, persistMesh writes to public/meshes/ and
- * stores the URL '/meshes/<iterationId>.<ext>'. Under `next start`, public/
- * is frozen at build time, so files created after the build 404 on the static
- * layer — those requests fall through to this handler, which reads the file
- * from disk. Files that DID exist at build time (and all files in dev) are
- * served by the static layer first; this handler only sees the leftovers.
- * Same bytes either way, so the split is invisible to clients.
+ * Without BLOB_READ_WRITE_TOKEN, persistMesh writes to the private mesh store
+ * (MESH_STORAGE_DIR / `.data/meshes`), never under public/, so Next static
+ * cannot bypass this handler. Legacy files in public/meshes/ are still readable
+ * via resolveLocalAssetPath fallback.
  *
- * Authorization: the mesh belongs to a user. We require a session and an
- * iteration row whose meshBlobUrl/slicedBlobUrl equals '/meshes/<name>' in a
- * project owned by the session user. No match → 404 (never 403, to avoid
- * leaking existence).
+ * Authorization: session + iteration row owned by the user. No match → 404.
  */
 import { auth } from '@/auth'
 import { db } from '@/db'
 import { iterations, projects } from '@/db/schema'
 import { apiError } from '@/lib/http/api-error'
+import { resolveLocalAssetPath } from '@/lib/storage/local-asset'
 import { and, eq, or } from 'drizzle-orm'
 import { gzip } from 'node:zlib'
 import { promisify } from 'node:util'
 import { readFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
 
 const gzipAsync = promisify(gzip)
 
@@ -67,7 +62,7 @@ export async function GET(
 
   let bytes: Buffer
   try {
-    bytes = await readFile(join(process.cwd(), 'public', 'meshes', name))
+    bytes = await readFile(await resolveLocalAssetPath(url))
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       return apiError(404, 'not_found', 'Arquivo não encontrado.')

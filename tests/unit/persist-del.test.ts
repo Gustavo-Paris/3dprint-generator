@@ -13,10 +13,12 @@ import { delMesh } from '@/lib/storage/persist'
 describe('delMesh', () => {
   beforeEach(() => { del.mockClear(); unlink.mockClear() })
 
-  it('unlinks a local /meshes path', async () => {
+  it('unlinks a local /meshes path (private store + legacy public)', async () => {
     await delMesh('/meshes/abc.stl')
-    expect(unlink).toHaveBeenCalledTimes(1)
-    expect(unlink.mock.calls[0][0]).toContain('public/meshes/abc.stl')
+    // Primary private path, then best-effort legacy public/meshes copy.
+    expect(unlink.mock.calls.length).toBeGreaterThanOrEqual(1)
+    const paths = unlink.mock.calls.map((c) => String(c[0]))
+    expect(paths.some((p) => p.includes('abc.stl'))).toBe(true)
     expect(del).not.toHaveBeenCalled()
   })
 

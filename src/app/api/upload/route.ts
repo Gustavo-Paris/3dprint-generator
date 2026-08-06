@@ -4,8 +4,9 @@ import { apiError } from '@/lib/http/api-error'
 import { sniffKind } from '@/lib/http/sniff-magic-bytes'
 import { put } from '@vercel/blob'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { uploadWritePath } from '@/lib/storage/local-asset'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -75,9 +76,10 @@ export async function POST(req: Request) {
     })
     url = blob.url
   } else {
-    const dir = join(process.cwd(), 'public', 'uploads')
-    await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, `${id}.${ext}`), bytes)
+    // Private store — not under public/ (auth only via /uploads/[file] route).
+    const abs = uploadWritePath(`${id}.${ext}`)
+    await mkdir(dirname(abs), { recursive: true })
+    await writeFile(abs, bytes)
     url = `/uploads/${id}.${ext}`
   }
 

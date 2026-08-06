@@ -1,8 +1,9 @@
 ---
 uid: task-029
-status: open
+status: done
 priority: normal
 scheduled: 2026-05-15
+completed: 2026-08-06
 pomodoros: 0
 contexts:
 - phase:4

@@ -50,8 +50,7 @@ import { isOwnMeshUrl } from '@/lib/http/owns-mesh-url'
 import { persistMesh } from '@/lib/storage/persist'
 import { createRequestLogger } from '@/lib/log'
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
-import { readFile, realpath } from 'node:fs/promises'
-import { join, sep } from 'node:path'
+import { readFile } from 'node:fs/promises'
 
 export const runtime = 'nodejs'
 export const maxDuration = 600
@@ -171,31 +170,10 @@ export async function POST(req: Request) {
         if (!r.ok) throw new Error(`fetch ${r.status}`)
         logoImageBuffer = Buffer.from(await r.arrayBuffer())
       } else {
-        const publicDir = join(process.cwd(), 'public')
-        const rel = effectiveImageUrl.startsWith('/') ? effectiveImageUrl.slice(1) : effectiveImageUrl
-        // Two-layer containment. Lexical first (join normalizes any ..), then
-        // realpath against the ALLOWED roots: publicDir itself plus the
-        // resolved targets of public/uploads and public/meshes — in
-        // production those two are symlinks onto the Railway volume (/data),
-        // so a naive realpath-vs-publicDir check rejected every legit upload,
-        // while a lexical-only check would trust any other symlink planted
-        // under public/. This allows exactly our symlinks and nothing else.
-        const p = join(publicDir, rel)
-        if (p !== publicDir && !p.startsWith(publicDir + sep)) {
-          throw new Error('image path escapes public dir')
-        }
-        const allowedRoots = (
-          await Promise.all(
-            [publicDir, join(publicDir, 'uploads'), join(publicDir, 'meshes')].map((d) =>
-              realpath(d).catch(() => null),
-            ),
-          )
-        ).filter((r): r is string => r !== null)
-        const real = await realpath(p)
-        if (!allowedRoots.some((r) => real === r || real.startsWith(r + sep))) {
-          throw new Error('image path escapes public dir')
-        }
-        logoImageBuffer = await readFile(real)
+        // Private store (uploads/meshes) or legacy public/ — no path traversal.
+        const { resolveLocalAssetPath } = await import('@/lib/storage/local-asset')
+        const filePath = await resolveLocalAssetPath(effectiveImageUrl)
+        logoImageBuffer = await readFile(filePath)
       }
     } catch (err) {
       log.error('image fetch failed (continuing without logo)', err, { iterationId: iteration.id })

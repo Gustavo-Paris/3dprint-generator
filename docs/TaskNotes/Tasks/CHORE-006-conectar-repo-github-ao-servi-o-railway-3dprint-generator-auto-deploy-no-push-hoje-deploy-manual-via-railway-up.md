@@ -1,8 +1,9 @@
 ---
 uid: chore-006
-status: open
+status: done
 priority: normal
 scheduled: 2026-08-03
+completed: 2026-08-06
 pomodoros: 0
 createdBy: Gustavo-Paris
 tags:
